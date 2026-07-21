@@ -25,6 +25,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: modelscope_output
+          key: ms-hf-${{ github.run_id }}
           restore-keys: |
             ms-comments-
             ms-hf-
