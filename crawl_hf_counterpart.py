@@ -42,9 +42,10 @@ SAMPLES = [
     ("AI-ModelScope/Hunyuan-7B-Instruct", "tencent/Hunyuan-7B-Instruct", "腾讯混元7B"),
 ]
 
-HF_API = "https://hf-mirror.com/api/models/{}"
-HF_RAW = "https://hf-mirror.com/{}/raw/main/README.md"
-HF_RAW_FALLBACK = "https://hf-mirror.com/{}/raw/master/README.md"
+HF_BASE = os.environ.get("HF_BASE", "https://hf-mirror.com")
+HF_API = HF_BASE + "/api/models/{}"
+HF_RAW = HF_BASE + "/{}/raw/main/README.md"
+HF_RAW_FALLBACK = HF_BASE + "/{}/raw/master/README.md"
 
 s = requests.Session()
 s.headers.update({"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain"})
