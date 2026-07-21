@@ -38,8 +38,7 @@ jobs:
       - name: 首次运行解包种子数据
         run: |
           if [ ! -f modelscope_output/models_all.json ]; then
-            mkdir -p modelscope_output
-            tar -xzf seed/modelscope_seed.tar.gz -C modelscope_output
+            tar -xzf seed/modelscope_seed.tar.gz
             echo "seed extracted"
           else
             echo "cache hit, skip seed"
