@@ -40,6 +40,14 @@ jobs:
       - name: 运行三板块全量清单爬虫（断点续爬）
         run: python crawl_ms_full_lists.py
 
+      - name: 安装 Playwright（MCP 清单需要过 WAF）
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: 运行 MCP 全量清单爬虫（断点续爬）
+        run: python crawl_ms_mcps_full.py
+
       - name: 上传数据产物
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,6 +63,9 @@ jobs:
             modelscope_output/studios_full.jsonl
             modelscope_output/studios_full.json
             modelscope_output/state_ms_studios_full.json
+            modelscope_output/mcp_full.jsonl
+            modelscope_output/mcp_full.json
+            modelscope_output/state_ms_mcp_full.json
           retention-days: 30
 
       - name: 生成并回写进度文件
@@ -63,10 +74,10 @@ jobs:
           python - <<'EOF'
           import json, os, datetime
           base = "modelscope_output"
-          site_totals = {"datasets": 38356, "skills": 76173, "studios": 13300}
+          site_totals = {"datasets": 38356, "skills": 76173, "studios": 13300, "mcp": 9781}
           prog = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "siteTotals": site_totals, "sections": {}}
-          for kind in ("datasets", "skills", "studios"):
+          for kind in ("datasets", "skills", "studios", "mcp"):
               total = terms = 0
               try:
                   with open(os.path.join(base, f"{kind}_full.json"), encoding="utf-8") as f:
