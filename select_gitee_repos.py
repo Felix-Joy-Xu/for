@@ -111,11 +111,14 @@ CANDIDATE_REPOS = [
 # Token 轮换器
 # ============================================================================
 class TokenRotator:
-    """Gitee token 轮换器，支持多 token 避免限流。"""
+    """Gitee token 轮换器，支持多 token 避免限流/单 token 失效。"""
     def __init__(self):
         self.tokens = list(dict.fromkeys(GITEE_TOKENS or ([GITEE_TOKEN] if GITEE_TOKEN else [])))
         self.idx = 0
         self.failed = set()
+
+    def count(self) -> int:
+        return len(self.tokens)
 
     def current(self) -> str | None:
         available = [t for t in self.tokens if t not in self.failed]
@@ -130,6 +133,13 @@ class TokenRotator:
 
     def mark_failed(self, token: str):
         self.failed.add(token)
+
+    def summary(self) -> str:
+        if not self.tokens:
+            return "no tokens"
+        first = self.tokens[0]
+        masked = first[:4] + "****" + first[-4:] if len(first) >= 8 else "****"
+        return f"{len(self.tokens)} tokens, first={masked}"
 
 
 TOKEN_ROTATOR = TokenRotator()
@@ -158,7 +168,8 @@ def gitee_get(session: requests.Session, path: str, params: dict = None) -> tupl
                     return r.text, 200
             if r.status_code == 404:
                 return None, 404
-            if r.status_code in (429, 403):
+            if r.status_code in (401, 429, 403):
+                # 401 可能是当前 token 失效，尝试下一个；429/403 是限流
                 TOKEN_ROTATOR.mark_failed(token)
                 TOKEN_ROTATOR.next()
                 time.sleep(1)
@@ -312,10 +323,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="只输出候选，不写入文件")
     args = parser.parse_args()
 
-    if not GITEE_TOKEN and not GITEE_TOKENS:
-        print("[warn] 未设置 GITEE_TOKEN / GITEE_TOKENS，可能触发严格限速。")
-    else:
-        print(f"[info] 已加载 {len(GITEE_TOKENS or ([GITEE_TOKEN] if GITEE_TOKEN else []))} 个 Gitee token")
+    if TOKEN_ROTATOR.count() == 0:
+        print("[error] 未设置 GITEE_TOKEN / GITEE_TOKENS，无法调用 Gitee API。请检查 GitHub Secrets。")
+        sys.exit(1)
+    print(f"[info] {TOKEN_ROTATOR.summary()}")
 
     session = requests.Session()
     session.headers.update(HEADERS)
