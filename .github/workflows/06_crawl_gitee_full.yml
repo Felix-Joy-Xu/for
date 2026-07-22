@@ -85,9 +85,15 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_TOKENS: ${{ secrets.GITEE_TOKENS }}
+      - name: 生成合法 artifact 名
+        id: artifact-name
+        run: |
+          SAFE_NAME=$(echo "${{ matrix.repo }}" | tr '/' '-')
+          echo "name=gitee-raw-$SAFE_NAME" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gitee-raw-${{ replace(matrix.repo, '/', '-') }}
+          name: ${{ steps.artifact-name.outputs.name }}
           path: 02-原始数据/各平台原始数据/gitee_raw/
           retention-days: 30
