@@ -13,18 +13,42 @@ HF_DIR = os.path.join(OUTPUT_DIR, "hf_governance")
 os.makedirs(HF_DIR, exist_ok=True)
 
 # HF 治理文档清单（与魔搭 governance_*.txt 编码框架对齐）
+# 注意：/terms 与 /dmca 在 HF 上会被解析为用户名（Terms、DMCA 用户），因此使用正确的官方路径。
+# 先尝试 hf-mirror.com；若被返回跳转页，则回退到 huggingface.co 原站。
 HF_TARGETS = [
-    ("terms_of_service", "https://hf-mirror.com/terms", "Terms of Service"),
+    ("terms_of_service", "https://hf-mirror.com/terms-of-service", "Terms of Service"),
     ("privacy_policy", "https://hf-mirror.com/privacy", "Privacy Policy"),
-    ("acceptable_use", "https://hf-mirror.com/content-policy", "Acceptable Use Policy / Acceptable Use Policy"),
-    ("community_guidelines", "https://hf-mirror.com/community-guidelines", "Community Guidelines"),
-    ("dmca_takedown", "https://hf-mirror.com/dmca", "DMCA / Takedown Policy"),
+    ("acceptable_use", "https://hf-mirror.com/content-policy", "Acceptable Use Policy"),
+    ("community_guidelines", "https://hf-mirror.com/code-of-conduct", "Code of Conduct / Community Guidelines"),
+    # HF 没有独立的公开 DMCA 页面，相关条款在 Terms of Service 中
+    ("dmca_takedown", "https://hf-mirror.com/terms-of-service", "DMCA / Takedown Policy (Terms of Service)"),
     ("model_card_guide", "https://hf-mirror.com/docs/hub/model-cards", "Model Card Guide"),
     ("gated_model_access", "https://hf-mirror.com/docs/hub/models-gated", "Gated Model Access Policy"),
     ("dataset_governance", "https://hf-mirror.com/docs/hub/datasets-gated", "Dataset Governance Terms"),
     ("safety_scanning", "https://hf-mirror.com/docs/hub/security-pickle", "Safety Scanning Policy (Pickle)"),
     ("malware_scanning", "https://hf-mirror.com/docs/hub/security-malware", "Safety Scanning Policy (Malware)"),
 ]
+
+
+def is_redirect_page(html: str) -> bool:
+    """判断 hf-mirror 是否返回了‘正在前往 Hugging Face 原站’的跳转页。"""
+    return "正在前往 Hugging Face 原站" in html or "检测到您的 IP" in html
+
+
+def fetch_governance(url: str, timeout: int = 30) -> requests.Response:
+    """抓取治理文档；若遇到 mirror 跳转页，则回退到 huggingface.co 原站。"""
+    r = session.get(url, timeout=timeout)
+    if r.status_code == 200 and is_redirect_page(r.text):
+        # 构造 huggingface.co 原站 URL
+        parsed = requests.utils.urlparse(url)
+        origin_url = f"https://huggingface.co{parsed.path}"
+        if parsed.query:
+            origin_url += f"?{parsed.query}"
+        print(f"  [mirror redirect] fallback to {origin_url}")
+        r = session.get(origin_url, timeout=timeout)
+        if r.status_code == 200:
+            r._origin_url = origin_url
+    return r
 
 METADATA_FILE = os.path.join(HF_DIR, "governance_metadata.json")
 
@@ -38,8 +62,9 @@ metadata = []
 for name, url, label in HF_TARGETS:
     print(f"\n--- {label} ---")
     try:
-        r = session.get(url, timeout=30)
-        print(f"  status: {r.status_code}, bytes: {len(r.text)}")
+        r = fetch_governance(url, timeout=30)
+        actual_url = getattr(r, "_origin_url", None) or url
+        print(f"  status: {r.status_code}, bytes: {len(r.text)}, url: {actual_url}")
         if r.status_code != 200 or len(r.text) < 500:
             continue
 
@@ -61,14 +86,14 @@ for name, url, label in HF_TARGETS:
         path = os.path.join(HF_DIR, f"hf_{name}.txt")
         clean_path = os.path.join(HF_DIR, f"hf_{name}_clean.txt")
         with open(path, "w", encoding="utf-8") as f:
-            f.write(f"# {label}\n# Source: {url}\n# CrawledAt: {datetime.now(timezone.utc).isoformat()}\n# Length: {len(text)} chars\n{'='*80}\n\n{r.text}")
+            f.write(f"# {label}\n# Source: {actual_url}\n# CrawledAt: {datetime.now(timezone.utc).isoformat()}\n# Length: {len(text)} chars\n{'='*80}\n\n{r.text}")
         with open(clean_path, "w", encoding="utf-8") as f:
-            f.write(f"# {label}\n# Source: {url}\n# CrawledAt: {datetime.now(timezone.utc).isoformat()}\n# Length: {len(text)} chars\n{'='*80}\n\n{text}")
+            f.write(f"# {label}\n# Source: {actual_url}\n# CrawledAt: {datetime.now(timezone.utc).isoformat()}\n# Length: {len(text)} chars\n{'='*80}\n\n{text}")
         print(f"  Saved: hf_{name}.txt ({len(r.text)} bytes) / clean ({len(text)} chars)")
         metadata.append({
             "name": name,
             "label": label,
-            "url": url,
+            "url": actual_url,
             "crawled_at": datetime.now(timezone.utc).isoformat(),
             "raw_size": len(r.text),
             "clean_size": len(text),
