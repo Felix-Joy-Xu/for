@@ -3,6 +3,10 @@ name: 02 - 更新跨平台匹配表
 on:
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   match:
     runs-on: ubuntu-latest
@@ -13,12 +17,30 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install requests
+
+      - name: 下载 HF 全量清单
+        uses: dawidd6/action-download-artifact@v8
+        with:
+          workflow: 01_crawl_hf_full.yml
+          name: hf-models-full
+          path: modelscope_output
+          if_no_artifact_found: warn
+
       - uses: actions/cache/restore@v4
         with:
           path: modelscope_output
           key: hf-full-${{ github.run_id }}
           restore-keys: hf-full-
-      - run: python update_cross_platform_match.py
+
+      - name: seed 兜底
+        run: |
+          if [ ! -f modelscope_output/hf_models_all.jsonl ]; then
+            tar -xzf seed/modelscope_seed.tar.gz || true
+          fi
+          ls -lh modelscope_output/hf_models_all.jsonl || true
+          ls -lh modelscope_output/models_all.json || true
+
+      - run: python update_cross_platform_match.py --skip-fuzzy --workers 4
       - uses: actions/upload-artifact@v4
         if: always()
         with:
