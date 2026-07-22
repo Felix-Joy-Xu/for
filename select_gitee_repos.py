@@ -29,8 +29,8 @@ import requests
 try:
     from _secrets import GITEE_TOKEN, GITEE_TOKENS
 except ImportError:
-    GITEE_TOKEN = os.environ.get("GITEE_TOKEN", "")
-    GITEE_TOKENS = [t for t in os.environ.get("GITEE_TOKENS", "").split(",") if t]
+    GITEE_TOKEN = os.environ.get("GITEE_TOKEN", "").strip()
+    GITEE_TOKENS = [t.strip() for t in os.environ.get("GITEE_TOKENS", "").split(",") if t.strip()]
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "modelscope_output"
@@ -298,8 +298,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="只输出候选，不写入文件")
     args = parser.parse_args()
 
-    if not GITEE_TOKEN:
-        print("[warn] 未设置 GITEE_TOKEN，可能触发严格限速。")
+    if not GITEE_TOKEN and not GITEE_TOKENS:
+        print("[warn] 未设置 GITEE_TOKEN / GITEE_TOKENS，可能触发严格限速。")
+    else:
+        print(f"[info] 已加载 {len(GITEE_TOKENS or ([GITEE_TOKEN] if GITEE_TOKEN else []))} 个 Gitee token")
 
     session = requests.Session()
     session.headers.update(HEADERS)
