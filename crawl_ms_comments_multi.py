@@ -166,12 +166,18 @@ def crawl_kind(kind, cfg):
 def main():
     only = os.environ.get("MS_SECTIONS", "")
     kinds = [k.strip() for k in only.split(",") if k.strip()] if only else list(TARGETS.keys())
+    had_source = False
     for kind in kinds:
         if abort_flag.is_set():
             break
+        if (OUT / TARGETS[kind]["source"]).exists():
+            had_source = True
         crawl_kind(kind, TARGETS[kind])
     if abort_flag.is_set():
         sys.exit(3)
+    if not had_source:
+        print("所有板块源文件都缺失，异常退出以防 CI 假成功。", flush=True)
+        sys.exit(2)
 
 
 if __name__ == "__main__":
