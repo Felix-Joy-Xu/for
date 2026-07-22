@@ -31,14 +31,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 下载 HF 对照表
-        uses: dawidd6/action-download-artifact@v8
-        with:
-          workflow: hf_counterpart.yml
-          name: hf-cross-snapshot
-          path: modelscope_output
-          if_no_artifact_found: warn
-
       - uses: actions/cache@v4
         with:
           path: modelscope_output
@@ -52,7 +44,7 @@ jobs:
           fi
           ls -lh modelscope_output/hf_models_all.jsonl || true
 
-      - run: python crawl_hf_subset.py --shard-index ${{ matrix.shard }} --total-shards 10 --total 6000 --top-n 2000 --stratified-n 3000
+      - run: python crawl_hf_subset.py --shard-index ${{ matrix.shard }} --total-shards 10 --total 2000 --top-n 1000 --stratified-n 1000
 
       - name: 生成分片报告
         if: always()
