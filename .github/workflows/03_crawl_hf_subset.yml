@@ -1,0 +1,44 @@
+name: 03 - HF 子集行为数据
+
+on:
+  workflow_dispatch:
+
+jobs:
+  subset-shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: hf-subset-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: |
+            hf-subset-${{ matrix.shard }}-
+            hf-full-
+          save-always: true
+      - run: |
+          if [ ! -f modelscope_output/models_all.json ]; then
+            tar -xzf seed/modelscope_seed.tar.gz || true
+          fi
+      - run: python crawl_hf_subset.py --shard-index ${{ matrix.shard }} --total-shards 10 --total 6000 --top-n 2000 --stratified-n 3000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hf-subset-shard-${{ matrix.shard }}
+          path: |
+            modelscope_output/hf_commit_history_shard_${{ matrix.shard }}.jsonl
+            modelscope_output/hf_comments_all_shard_${{ matrix.shard }}.jsonl
+            modelscope_output/hf_model_dependencies_shard_${{ matrix.shard }}.jsonl
+            modelscope_output/state_hf_subset_shard_${{ matrix.shard }}.json
+            modelscope_output/hf_model_cards/
+            modelscope_output/hf_model_configs/
+          retention-days: 30

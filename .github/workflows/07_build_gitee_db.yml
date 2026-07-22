@@ -1,0 +1,27 @@
+name: 07 - Gitee 数据入库
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/download-artifact@v4
+        with:
+          path: 02-原始数据/各平台原始数据/gitee_raw
+          pattern: gitee-raw-*
+          merge-multiple: true
+      - run: python build_gitee_database.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitee-full-db
+          path: 02-原始数据/01-GitHub数据/gitee_full.db
+          retention-days: 30

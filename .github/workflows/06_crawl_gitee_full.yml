@@ -1,0 +1,62 @@
+name: 06 - Gitee 全量行为数据
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      repos: ${{ steps.set.outputs.repos }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - id: set
+        run: |
+          python - <<'EOF'
+          import json
+          try:
+              with open("modelscope_output/gitee_selected_repos.json", encoding="utf-8") as f:
+                  selected = json.load(f)
+              repos = [f"{s['owner']}/{s['repo']}" for s in selected if s.get("selected")]
+              print("repos=" + json.dumps(repos))
+          except Exception:
+              print("repos=[]")
+          EOF
+
+  crawl-repo:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJson(needs.prepare.outputs.repos) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/cache@v4
+        with:
+          path: |
+            modelscope_output
+            02-原始数据/各平台原始数据/gitee_raw
+          key: gitee-${{ matrix.repo }}-${{ github.run_id }}
+          restore-keys: gitee-${{ matrix.repo }}-
+          save-always: true
+      - name: 采集单仓库数据
+        run: |
+          python crawl_gitee.py --only-repo "${{ matrix.repo }}" --since 2020-01-01
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_TOKENS: ${{ secrets.GITEE_TOKENS }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitee-raw-${{ matrix.repo }}
+          path: 02-原始数据/各平台原始数据/gitee_raw/
+          retention-days: 30

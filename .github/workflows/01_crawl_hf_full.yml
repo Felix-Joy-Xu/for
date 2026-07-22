@@ -1,0 +1,89 @@
+name: 01 - HF 全量清单
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: hf-full-${{ github.run_id }}
+          restore-keys: hf-full-
+          save-always: true
+      - run: |
+          if [ ! -f modelscope_output/models_all.json ]; then
+            tar -xzf seed/modelscope_seed.tar.gz || true
+          fi
+      - run: python crawl_hf_full.py models
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hf-models-full
+          path: |
+            modelscope_output/hf_models_all.*
+            modelscope_output/state_hf_models.json
+          retention-days: 30
+
+  datasets:
+    runs-on: ubuntu-latest
+    needs: models
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: hf-full-${{ github.run_id }}
+          restore-keys: hf-full-
+          save-always: true
+      - run: python crawl_hf_full.py datasets
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hf-datasets-full
+          path: |
+            modelscope_output/hf_datasets_all.*
+            modelscope_output/state_hf_datasets.json
+          retention-days: 30
+
+  spaces:
+    runs-on: ubuntu-latest
+    needs: datasets
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: hf-full-${{ github.run_id }}
+          restore-keys: hf-full-
+          save-always: true
+      - run: python crawl_hf_full.py spaces
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hf-spaces-full
+          path: |
+            modelscope_output/hf_studios_all.*
+            modelscope_output/state_hf_spaces.json
+          retention-days: 30

@@ -50,11 +50,12 @@ RESOURCE_CFG = {
     "spaces":   {"endpoint": "spaces",   "prefix": "hf_studios",  "repo_type": "space"},
 }
 
-# 对齐魔搭 models_all.csv 的字段顺序
+# 对齐魔搭 models_all.csv 的字段顺序，并补充清单要求的 library_name
 CSV_FIELDS = [
     "CreatedAt", "Description", "Downloads", "Id", "License", "Likes",
     "Name", "Owner", "RepoType", "Tags", "UpdatedAt", "Visibility",
     "display_name", "file_size", "gated", "login_required", "private", "tasks",
+    "library_name",
 ]
 
 REQUEST_DELAY = 0.8          # 请求间隔（秒）
@@ -132,6 +133,7 @@ def normalize_record(item: dict, repo_type: str) -> dict:
         "login_required": login_required,
         "private": private,
         "tasks": item.get("pipeline_tag", ""),
+        "library_name": item.get("library_name") or extract_library_name(tags),
     }
 
 

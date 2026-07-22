@@ -1,0 +1,27 @@
+name: 05 - Gitee 仓库选择
+
+on:
+  workflow_dispatch:
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - run: python select_gitee_repos.py --since 2024-01-01 --target 35
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_TOKENS: ${{ secrets.GITEE_TOKENS }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitee-selected
+          path: |
+            modelscope_output/gitee_selected_repos.json
+            modelscope_output/gitee_repo_candidates.json
+          retention-days: 30

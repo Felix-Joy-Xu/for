@@ -1,0 +1,29 @@
+name: 02 - 更新跨平台匹配表
+
+on:
+  workflow_dispatch:
+
+jobs:
+  match:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install requests
+      - uses: actions/cache/restore@v4
+        with:
+          path: modelscope_output
+          key: hf-full-${{ github.run_id }}
+          restore-keys: hf-full-
+      - run: python update_cross_platform_match.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cross-platform-match
+          path: |
+            modelscope_output/cross_platform_match_full.json
+            modelscope_output/cross_platform_match_full.csv
+          retention-days: 30
