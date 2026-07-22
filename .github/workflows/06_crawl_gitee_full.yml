@@ -1,5 +1,9 @@
 name: 06 - Gitee 全量行为数据
 
+permissions:
+  actions: read
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -21,12 +25,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 下载 Gitee 选仓结果
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v8
         with:
           workflow: 05_crawl_gitee_select.yml
           name: gitee-selected
           path: modelscope_output
           if_no_artifact_found: fail
+          run_id: ${{ github.event.inputs.select_run_id || '' }}
 
       - uses: actions/setup-python@v5
         with:
@@ -45,7 +50,10 @@ jobs:
                   repos = [f"{s['owner']}/{s['repo']}" for s in selected if s.get("selected")]
               except Exception as e:
                   print("parse error:", e)
-          print("repos=" + json.dumps(repos))
+          repos_json = json.dumps(repos)
+          print("repos=" + repos_json)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"repos={repos_json}\n")
           EOF
 
   crawl-repo:
