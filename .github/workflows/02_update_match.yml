@@ -30,6 +30,11 @@ jobs:
           gh run download "$RUN_ID" --repo ${{ github.repository }} \
             --name hf-models-full \
             --dir modelscope_output
+          # 展平 artifact 子目录
+          if [ -d modelscope_output/hf-models-full ]; then
+            mv modelscope_output/hf-models-full/* modelscope_output/
+            rm -rf modelscope_output/hf-models-full
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
