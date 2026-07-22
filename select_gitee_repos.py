@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Gitee 仓库选择器
-================
-按清单要求从候选清单中筛选 30–40 个主仓：
-  - 主仓在 Gitee（非 GitHub 镜像）
-  - AI/LLM 类与通用开源类大致各半
-  - 活跃度门槛（近 2 年 issue/PR 量级可比拟 GitHub 对照仓）
-  - 覆盖不同治理主体（企业主导 / 基金会托管 / 社区自发）
+Gitee 仓库选择器（中美对比版）
+===========================
+逻辑与 GitHub 抓取一致：
+  1. 生产性软件：Gitee 上高 star、中文社区活跃的原生仓库
+  2. AI/LLM：国产 AI 框架、模型、工具在 Gitee 上的主仓
+  3. 评估 2020 年以来的 issue/PR 活跃度与 mirror 关系，按分数排序选取
 
 输出：
   - modelscope_output/gitee_selected_repos.json
@@ -18,7 +17,6 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -42,10 +40,76 @@ OUT_CANDIDATES = OUTPUT_DIR / "gitee_repo_candidates.json"
 GITEE_API = "https://gitee.com/api/v5"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.3
 MAX_PER_PAGE = 100
 
+# Gitee 仓库候选清单（中美对比逻辑）
+# 规则：
+#   1. 生产性软件：Gitee 上高 star、中文社区活跃的原生仓库
+#   2. AI/LLM：国产 AI 框架、模型、工具在 Gitee 上的主仓
+#   3. 通过 API 获取真实 star 数与 2020 年以来的 issue/PR 活跃度，再按分数排序选取
+# 类别：AI_LLM 或 GENERAL
+CANDIDATE_REPOS = [
+    # AI/LLM 类
+    {"gitee": "mindspore/mindspore", "category": "AI_LLM", "label": "昇思 MindSpore"},
+    {"gitee": "mindspore/mindspore-lite", "category": "AI_LLM", "label": "MindSpore Lite"},
+    {"gitee": "Jittor/Jittor", "category": "AI_LLM", "label": "计图 Jittor"},
+    {"gitee": "Jittor/jittorllms", "category": "AI_LLM", "label": "Jittor LLMs"},
+    {"gitee": "InternLM/InternLM", "category": "AI_LLM", "label": "书生·浦语"},
+    {"gitee": "InternLM/lmdeploy", "category": "AI_LLM", "label": "LMDeploy"},
+    {"gitee": "InternLM/xtuner", "category": "AI_LLM", "label": "XTuner"},
+    {"gitee": "InternLM/opencompass", "category": "AI_LLM", "label": "OpenCompass"},
+    {"gitee": "InternLM/MindSearch", "category": "AI_LLM", "label": "MindSearch"},
+    {"gitee": "ZhipuAI/ChatGLM-6B", "category": "AI_LLM", "label": "ChatGLM-6B"},
+    {"gitee": "ZhipuAI/chatglm3-6b", "category": "AI_LLM", "label": "ChatGLM3-6B"},
+    {"gitee": "baichuan-inc/Baichuan2", "category": "AI_LLM", "label": "百川 Baichuan2"},
+    {"gitee": "OpenBMB/CPM-Bee", "category": "AI_LLM", "label": "OpenBMB CPM-Bee"},
+    {"gitee": "OpenBMB/MiniCPM", "category": "AI_LLM", "label": "MiniCPM"},
+    {"gitee": "opengauss/openGauss", "category": "AI_LLM", "label": "openGauss"},
+    {"gitee": "opengauss/openGauss-AI", "category": "AI_LLM", "label": "openGauss-AI"},
+    {"gitee": "OpenAtomFoundation/pacific-ai", "category": "AI_LLM", "label": "OpenAtom Pacific-AI"},
+    {"gitee": "modelscope/FunASR", "category": "AI_LLM", "label": "FunASR"},
+    {"gitee": "XiaoHuAI/AgentVerse", "category": "AI_LLM", "label": "AgentVerse"},
 
+    # 通用开源/生产性软件类（高 star 中文原生仓库）
+    {"gitee": "labuladong/fucking-algorithm", "category": "GENERAL", "label": "labuladong 算法"},
+    {"gitee": "macrozheng/mall", "category": "GENERAL", "label": "mall 电商系统"},
+    {"gitee": "xuxueli/xxl-job", "category": "GENERAL", "label": "XXL-JOB"},
+    {"gitee": "elunez/eladmin", "category": "GENERAL", "label": "EL-ADMIN"},
+    {"gitee": "lenve/vhr", "category": "GENERAL", "label": "微人事"},
+    {"gitee": "baomidou/mybatis-plus", "category": "GENERAL", "label": "MyBatis-Plus"},
+    {"gitee": "apolloconfig/apollo", "category": "GENERAL", "label": "Apollo"},
+    {"gitee": "seata/seata", "category": "GENERAL", "label": "Seata"},
+    {"gitee": "jeecgboot/jeecg-boot", "category": "GENERAL", "label": "JeecgBoot"},
+    {"gitee": "ruoyi/ruoyi-vue-pro", "category": "GENERAL", "label": "RuoYi-Vue-Pro"},
+    {"gitee": "newbee-ltd/newbee-mall", "category": "GENERAL", "label": "NewBee Mall"},
+    {"gitee": "alibaba/easyexcel", "category": "GENERAL", "label": "EasyExcel"},
+    {"gitee": "alibaba/canal", "category": "GENERAL", "label": "Canal"},
+    {"gitee": "alibaba/Sentinel", "category": "GENERAL", "label": "Sentinel"},
+    {"gitee": "alibaba/arthas", "category": "GENERAL", "label": "Arthas"},
+    {"gitee": "Tencent/weui", "category": "GENERAL", "label": "WeUI"},
+    {"gitee": "Tencent/vConsole", "category": "GENERAL", "label": "vConsole"},
+    {"gitee": "Tencent/wepy", "category": "GENERAL", "label": "WePY"},
+    {"gitee": "Tencent/APIJSON", "category": "GENERAL", "label": "APIJSON"},
+    {"gitee": "youzan/vant", "category": "GENERAL", "label": "Vant"},
+    {"gitee": "openeuler/openEuler", "category": "GENERAL", "label": "openEuler"},
+    {"gitee": "openharmony/openharmony", "category": "GENERAL", "label": "OpenHarmony"},
+    {"gitee": "openlookeng/openLooKeng", "category": "GENERAL", "label": "openLooKeng"},
+    {"gitee": "pingcap/tidb", "category": "GENERAL", "label": "TiDB"},
+    {"gitee": "sofastack/sofa-boot", "category": "GENERAL", "label": "SOFABoot"},
+    {"gitee": "apache/dolphinscheduler", "category": "GENERAL", "label": "DolphinScheduler"},
+    {"gitee": "apache/shardingsphere", "category": "GENERAL", "label": "ShardingSphere"},
+    {"gitee": "apache/rocketmq", "category": "GENERAL", "label": "RocketMQ"},
+    {"gitee": "Meituan/Leaf", "category": "GENERAL", "label": "Leaf"},
+    {"gitee": "didi/DoraemonKit", "category": "GENERAL", "label": "DoraemonKit"},
+    {"gitee": "Baidu/uid-generator", "category": "GENERAL", "label": "uid-generator"},
+    {"gitee": "opengoofy/hippo4j", "category": "GENERAL", "label": "Hippo4j"},
+]
+
+
+# ============================================================================
+# Token 轮换器
+# ============================================================================
 class TokenRotator:
     """Gitee token 轮换器，支持多 token 避免限流。"""
     def __init__(self):
@@ -69,93 +133,6 @@ class TokenRotator:
 
 
 TOKEN_ROTATOR = TokenRotator()
-
-
-def fetch_paginated(session: requests.Session, path: str, params: dict = None,
-                    since: str = None, since_key: str = "since") -> list:
-    """分页拉取 Gitee 列表接口。"""
-    all_items = []
-    p = dict(params) if params else {}
-    p["per_page"] = MAX_PER_PAGE
-    page = 1
-    consecutive_empty = 0
-
-    while True:
-        p["page"] = page
-        if since and since_key:
-            p[since_key] = since
-
-        data, status = gitee_get(session, path, p)
-        if status != 200:
-            break
-        if not isinstance(data, list):
-            break
-        if not data:
-            consecutive_empty += 1
-            if consecutive_empty >= 2:
-                break
-        else:
-            consecutive_empty = 0
-            all_items.extend(data)
-            # 如果最后一项已经早于 since，可以提前终止
-            if since and data:
-                last_created = data[-1].get("created_at") or data[-1].get("createdAt", "")
-                if last_created and last_created < since:
-                    break
-
-        if len(data) < MAX_PER_PAGE:
-            break
-        page += 1
-        time.sleep(REQUEST_DELAY)
-
-    return all_items
-
-
-# 候选仓库：AI/LLM 类 + 通用对照类
-CANDIDATES = {
-    # AI/LLM 类
-    "AI_LLM": [
-        ("mindspore", "mindspore"),
-        ("mindspore", "mindspore-lite"),
-        ("mindspore", "mindspore-ascend"),
-        ("Jittor", "Jittor"),
-        ("Jittor", "jittorllms"),
-        ("opengauss", "openGauss"),
-        ("opengauss", "openGauss-AI"),
-        ("OpenAtomFoundation", "prompt-java"),
-        ("OpenAtomFoundation", "pacific-ai"),
-        ("InternLM", "InternLM"),
-        ("baichuan-inc", "Baichuan2"),
-        ("ZhipuAI", "ChatGLM-6B"),
-        ("ZhipuAI", "chatglm3-6b"),
-        ("XiaoHuAI", "AgentVerse"),
-        ("OpenBMB", "CPM-Bee"),
-    ],
-    # 通用对照类
-    "GENERAL": [
-        ("openeuler", "openEuler"),
-        ("openharmony", "openharmony"),
-        ("opengauss", "openGauss"),
-        ("openlookeng", "openLooKeng"),
-        ("apache", "dubbo"),
-        ("apache", "rocketmq"),
-        ("apache", "shardingsphere"),
-        ("sofastack", "sofa-boot"),
-        ("alibaba", "nacos"),
-        ("alibaba", "sentinel"),
-        ("alibaba", "arthas"),
-        ("Tencent", "Matrix"),
-        ("Tencent", "wcdb"),
-        ("Tencent", "Tendis"),
-        ("Huawei", "DevEco-Device-Tool"),
-        ("pingcap", "tidb"),
-        ("vuejs", "vue"),
-        ("labuladong", "fucking-algorithm"),
-    ],
-}
-
-# 活跃度门槛：近 2 年 issue + PR >= 50
-ACTIVITY_THRESHOLD = 50
 
 
 # ============================================================================
@@ -182,7 +159,6 @@ def gitee_get(session: requests.Session, path: str, params: dict = None) -> tupl
             if r.status_code == 404:
                 return None, 404
             if r.status_code in (429, 403):
-                # 可能当前 token 限流，尝试下一个
                 TOKEN_ROTATOR.mark_failed(token)
                 TOKEN_ROTATOR.next()
                 time.sleep(1)
@@ -196,30 +172,71 @@ def gitee_get(session: requests.Session, path: str, params: dict = None) -> tupl
     return None, -1
 
 
-def count_since(items: list, since: str) -> int:
-    """统计 since 时间之后创建的项目数（假设字段为 created_at）。"""
-    cnt = 0
-    for item in items:
-        created = item.get("created_at") or item.get("createdAt") or ""
-        if created and created >= since:
-            cnt += 1
-    return cnt
+def fetch_paginated(session: requests.Session, path: str, params: dict = None,
+                    since: str = None, since_key: str = "since",
+                    max_pages: int = 10) -> list:
+    """分页拉取 Gitee 列表接口。"""
+    all_items = []
+    p = dict(params) if params else {}
+    p["per_page"] = MAX_PER_PAGE
+    page = 1
+    consecutive_empty = 0
+
+    while page <= max_pages:
+        p["page"] = page
+        if since and since_key:
+            p[since_key] = since
+
+        data, status = gitee_get(session, path, p)
+        if status != 200:
+            break
+        if not isinstance(data, list):
+            break
+        if not data:
+            consecutive_empty += 1
+            if consecutive_empty >= 2:
+                break
+        else:
+            consecutive_empty = 0
+            all_items.extend(data)
+            if since and data:
+                last_created = data[-1].get("created_at") or data[-1].get("createdAt", "")
+                if last_created and last_created < since:
+                    break
+
+        if len(data) < MAX_PER_PAGE:
+            break
+        page += 1
+        time.sleep(REQUEST_DELAY)
+
+    return all_items
 
 
 def classify_governance(owner_type: str, description: str, org_login: str) -> str:
     """简单判断治理主体类型。"""
     desc = (description or "").lower()
+    org = org_login.lower()
     if owner_type == "Organization":
-        if any(k in org_login.lower() for k in ["foundation", "apache", "openatom", "openeuler", "openharmony", "opengauss"]):
+        if any(k in org for k in ["foundation", "apache", "openatom", "openeuler", "openharmony", "opengauss"]):
             return "foundation"
         return "enterprise"
     return "community"
 
 
+def is_github_mirror(repo_info: dict) -> bool:
+    """判断仓库是否为 GitHub 镜像。"""
+    mirror_url = repo_info.get("mirror_url") or ""
+    html_url = repo_info.get("html_url") or ""
+    parent = repo_info.get("parent") or repo_info.get("source")
+    has_github_parent = bool(parent and "github.com" in json.dumps(parent))
+    return has_github_parent or "github.com" in mirror_url or "github.com" in html_url
+
+
 # ============================================================================
 # 主流程
 # ============================================================================
-def evaluate_repo(session: requests.Session, owner: str, repo: str, since: str) -> dict:
+def evaluate_repo(session: requests.Session, owner: str, repo: str, since: str,
+                  exclude_mirrors: bool, activity_threshold: int) -> dict:
     """评估单个候选仓库。"""
     result = {
         "owner": owner,
@@ -245,6 +262,7 @@ def evaluate_repo(session: requests.Session, owner: str, repo: str, since: str) 
         "name": repo_info.get("name"),
         "full_name": repo_info.get("full_name"),
         "description": repo_info.get("description"),
+        "language": repo_info.get("language"),
         "stargazers_count": repo_info.get("stargazers_count"),
         "watchers_count": repo_info.get("watchers_count"),
         "forks_count": repo_info.get("forks_count"),
@@ -255,46 +273,42 @@ def evaluate_repo(session: requests.Session, owner: str, repo: str, since: str) 
         "owner_login": (repo_info.get("owner") or {}).get("login"),
     }
 
-    # 检查镜像关系
-    # Gitee API 中 parent / source / mirror_from 字段可能暴露镜像来源
-    mirror_url = repo_info.get("mirror_url") or repo_info.get("html_url") or ""
-    parent = repo_info.get("parent") or repo_info.get("source")
-    has_github_parent = bool(parent and "github.com" in json.dumps(parent))
-    result["is_mirror"] = has_github_parent or "github.com" in mirror_url
-    if result["is_mirror"]:
-        result["reason"] = "GitHub mirror"
+    mirror = is_github_mirror(repo_info)
+    result["is_mirror"] = mirror
+    if mirror and exclude_mirrors:
+        result["reason"] = "GitHub mirror (excluded)"
         return result
 
-    # 治理主体
     result["governance_type"] = classify_governance(
         result["repo_info"]["owner_type"],
         result["repo_info"]["description"],
         result["repo_info"]["owner_login"],
     )
 
-    # 活跃度：近 since 以来 issues + PRs（分页获取）
     issues = fetch_paginated(session, f"/repos/{owner}/{repo}/issues",
                              {"state": "all", "sort": "created", "direction": "desc"},
-                             since=since)
+                             since=since, max_pages=5)
     pulls = fetch_paginated(session, f"/repos/{owner}/{repo}/pulls",
                             {"state": "all", "sort": "created", "direction": "desc"},
-                            since=since)
+                            since=since, max_pages=5)
 
     result["activity_2y"] = len(issues) + len(pulls)
 
-    if result["activity_2y"] < ACTIVITY_THRESHOLD:
+    if result["activity_2y"] < activity_threshold:
         result["reason"] = f"activity too low ({result['activity_2y']})"
         return result
 
     result["selected"] = True
-    result["reason"] = "selected"
+    result["reason"] = "selected" + (" (mirror)" if mirror else "")
     return result
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Gitee 仓库选择器")
+    parser = argparse.ArgumentParser(description="Gitee 仓库选择器（中美对照清单版）")
     parser.add_argument("--since", default="2024-01-01", help="活跃度统计起始日期（默认 2024-01-01）")
     parser.add_argument("--target", type=int, default=35, help="目标仓库数（默认 35）")
+    parser.add_argument("--activity-threshold", type=int, default=5, help="近 since 以来 issue + PR 门槛（默认 5）")
+    parser.add_argument("--exclude-mirrors", action="store_true", help="排除 GitHub 镜像（默认保留，以便中美对照）")
     parser.add_argument("--dry-run", action="store_true", help="只输出候选，不写入文件")
     args = parser.parse_args()
 
@@ -307,27 +321,38 @@ def main():
     session.headers.update(HEADERS)
 
     all_candidates = []
-    for category, repos in CANDIDATES.items():
-        for owner, repo in repos:
-            print(f"[eval] {owner}/{repo} ...")
-            info = evaluate_repo(session, owner, repo, args.since)
-            info["category"] = category
-            all_candidates.append(info)
-            time.sleep(REQUEST_DELAY)
+    for item in CANDIDATE_REPOS:
+        owner, repo = item["gitee"].split("/", 1)
+        print(f"[eval] {owner}/{repo} ({item['category']}) ...")
+        info = evaluate_repo(session, owner, repo, args.since,
+                             args.exclude_mirrors, args.activity_threshold)
+        info.update({
+            "category": item["category"],
+            "label": item["label"],
+        })
+        all_candidates.append(info)
+        time.sleep(REQUEST_DELAY)
 
     # 按类别分别选取，保持 AI/LLM 与通用大致各半
+    # 排序：优先 star 数（高 star 生产性软件），其次活跃度
+    def repo_score(c):
+        stars = (c.get("repo_info") or {}).get("stargazers_count", 0) or 0
+        return stars + c["activity_2y"] * 10
+
     selected = []
     ai_selected = [c for c in all_candidates if c["category"] == "AI_LLM" and c["selected"]]
     gen_selected = [c for c in all_candidates if c["category"] == "GENERAL" and c["selected"]]
+
+    ai_selected.sort(key=lambda x: -repo_score(x))
+    gen_selected.sort(key=lambda x: -repo_score(x))
 
     half = args.target // 2
     selected.extend(ai_selected[:half])
     selected.extend(gen_selected[:half])
 
-    # 若某一类不足，用另一类补
     if len(selected) < args.target:
         remaining = [c for c in all_candidates if c["selected"] and c not in selected]
-        remaining.sort(key=lambda x: -x["activity_2y"])
+        remaining.sort(key=lambda x: -repo_score(x))
         selected.extend(remaining[:args.target - len(selected)])
 
     selected = selected[:args.target]
@@ -335,6 +360,7 @@ def main():
     print(f"\n[summary] 候选总数: {len(all_candidates)}, 选中: {len(selected)}")
     print(f"  AI/LLM: {len([s for s in selected if s['category']=='AI_LLM'])}")
     print(f"  General: {len([s for s in selected if s['category']=='GENERAL'])}")
+    print(f"  Mirrors: {len([s for s in selected if s['is_mirror']])}")
     print(f"  Governance: enterprise={len([s for s in selected if s['governance_type']=='enterprise'])}, "
           f"foundation={len([s for s in selected if s['governance_type']=='foundation'])}, "
           f"community={len([s for s in selected if s['governance_type']=='community'])}")
@@ -346,7 +372,7 @@ def main():
                   f"mirror={c['is_mirror']} activity={c['activity_2y']:4d} gov={c['governance_type'] or 'N/A':12s} reason={c['reason']}")
         print("\n[selected]")
         for s in selected:
-            print(f"  {s['full_name']}  activity_2y={s['activity_2y']}  gov={s['governance_type']}")
+            print(f"  {s['full_name']}  activity_2y={s['activity_2y']}  stars={s.get('repo_info',{}).get('stargazers_count')}  gov={s['governance_type']}")
         return
 
     with open(OUT_SELECTED, "w", encoding="utf-8") as f:

@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install requests
-      - run: python select_gitee_repos.py --since 2024-01-01 --target 35
+      - run: python select_gitee_repos.py --since 2020-01-01 --target 35
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_TOKENS: ${{ secrets.GITEE_TOKENS }}
