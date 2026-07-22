@@ -1,0 +1,86 @@
+name: 魔搭全量模型清单
+
+# 每周日 UTC 20:17（北京时间周一 04:17）自动运行，也可手动触发。
+# 用 OpenAPI 前缀切片法采集全站 ~22.7 万个模型清单（绕过 3000 翻页窗口上限）。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 20 * * 0"
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-models-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 恢复清单缓存
+        uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: ms-models-${{ github.run_id }}
+          restore-keys: |
+            ms-models-
+            ms-comments-
+          save-always: true
+
+      - name: 运行全量清单爬虫（断点续爬）
+        run: python crawl_ms_models_full.py
+
+      - name: 上传数据产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-models-full-run${{ github.run_number }}
+          path: |
+            modelscope_output/models_full.jsonl
+            modelscope_output/models_full.json
+            modelscope_output/state_ms_models_full.json
+          retention-days: 30
+
+      - name: 生成并回写进度文件
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, os, datetime
+          base = "modelscope_output"
+          total = terms = 0
+          try:
+              with open(os.path.join(base, "models_full.json"), encoding="utf-8") as f:
+                  total = len(json.load(f))
+          except Exception as e:
+              print("models_full 读取失败:", e)
+          try:
+              with open(os.path.join(base, "state_ms_models_full.json"), encoding="utf-8") as f:
+                  terms = len(json.load(f))
+          except Exception as e:
+              print("state 读取失败:", e)
+          prog = {
+              "models": total,
+              "termsCompleted": terms,
+              "siteTotal": 226815,
+              "updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          with open("progress_models.json", "w", encoding="utf-8") as f:
+              json.dump(prog, f, ensure_ascii=False, indent=1)
+          print(prog)
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add progress_models.json
+          git diff --cached --quiet || git commit -m "data: 全量模型清单进度 $(date -u '+%F %H:%M')"
+          git pull --rebase origin main || true
+          git push || echo "::warning::progress_models.json 推送失败，下次运行会重试"
