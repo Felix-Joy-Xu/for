@@ -8,19 +8,15 @@ permissions:
   contents: read
 
 jobs:
-  subset-shard:
+  crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install requests
+      - run: pip install requests huggingface_hub
 
       - name: 下载 HF 全量清单
         run: |
@@ -42,118 +38,37 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/cache@v4
-        with:
-          path: modelscope_output
-          key: hf-subset-${{ matrix.shard }}
-          restore-keys: hf-subset-${{ matrix.shard }}
-
-      - name: seed 兜底
-        run: |
-          if [ ! -f modelscope_output/hf_models_all.jsonl ]; then
-            tar -xzf seed/modelscope_seed.tar.gz || true
-          fi
-          ls -lh modelscope_output/hf_models_all.jsonl || true
-
       - name: 采集 HF 子集行为数据
         run: |
-          python crawl_hf_subset.py \
-            --shard-index ${{ matrix.shard }} \
-            --total-shards 10 \
-            --total 2000 \
-            --top-n 1000 \
-            --stratified-n 1000 \
-            --workers 8
+          python crawl_hf_subset.py --total 200 --workers 4
         env:
           HF_BASE: https://huggingface.co
 
-      - name: 生成分片报告
+      - name: 生成进度报告
         if: always()
         run: |
-          echo "# 03 - HF 子集行为数据 (shard ${{ matrix.shard }})" > report-03-shard-${{ matrix.shard }}.md
-          echo "" >> report-03-shard-${{ matrix.shard }}.md
-          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-03-shard-${{ matrix.shard }}.md
-          echo "" >> report-03-shard-${{ matrix.shard }}.md
-          for f in modelscope_output/hf_commit_history_shard_${{ matrix.shard }}.jsonl modelscope_output/hf_comments_all_shard_${{ matrix.shard }}.jsonl modelscope_output/hf_model_dependencies_shard_${{ matrix.shard }}.jsonl; do
-            if [ -f "$f" ]; then
-              wc -l "$f" >> report-03-shard-${{ matrix.shard }}.md
-            fi
-          done
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: hf-subset-shard-${{ matrix.shard }}
-          path: |
-            modelscope_output/hf_commit_history_shard_${{ matrix.shard }}.jsonl
-            modelscope_output/hf_comments_all_shard_${{ matrix.shard }}.jsonl
-            modelscope_output/hf_model_dependencies_shard_${{ matrix.shard }}.jsonl
-            modelscope_output/state_hf_subset_shard_${{ matrix.shard }}.json
-            modelscope_output/hf_model_cards/
-            modelscope_output/hf_model_configs/
-            report-03-shard-${{ matrix.shard }}.md
-          retention-days: 30
-
-  merge:
-    needs: subset-shard
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: always()
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: 下载全部分片
-        uses: actions/download-artifact@v4
-        with:
-          pattern: hf-subset-shard-*
-          path: shards
-          merge-multiple: true
-
-      - name: 合并分片
-        run: |
-          mkdir -p modelscope_output
-          for f in shards/hf_commit_history_shard_*.jsonl; do
-            [ -f "$f" ] && cat "$f"
-          done > modelscope_output/hf_commit_history.jsonl
-
-          for f in shards/hf_comments_all_shard_*.jsonl; do
-            [ -f "$f" ] && cat "$f"
-          done > modelscope_output/hf_comments_all.jsonl
-
-          for f in shards/hf_model_dependencies_shard_*.jsonl; do
-            [ -f "$f" ] && cat "$f"
-          done > modelscope_output/hf_model_dependencies.jsonl
-
-          mkdir -p modelscope_output/hf_model_cards modelscope_output/hf_model_configs
-          find shards -type d -name "hf_model_cards" -exec cp -r {}/* modelscope_output/hf_model_cards/ \;
-          find shards -type d -name "hf_model_configs" -exec cp -r {}/* modelscope_output/hf_model_configs/ \;
-
-      - name: 生成合并报告
-        run: |
-          echo "# 03 - HF 子集行为数据合并报告" > report-03-merged.md
-          echo "" >> report-03-merged.md
-          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-03-merged.md
-          echo "" >> report-03-merged.md
+          echo "# 03 - HF 子集行为数据" > report-03.md
+          echo "" >> report-03.md
+          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-03.md
+          echo "" >> report-03.md
           for f in modelscope_output/hf_commit_history.jsonl modelscope_output/hf_comments_all.jsonl modelscope_output/hf_model_dependencies.jsonl; do
             if [ -f "$f" ]; then
-              wc -l "$f" >> report-03-merged.md
-              ls -lh "$f" >> report-03-merged.md
+              wc -l "$f" >> report-03.md
+              ls -lh "$f" >> report-03.md
             fi
           done
-          echo "" >> report-03-merged.md
-          echo "model_cards: $(find modelscope_output/hf_model_cards -type f | wc -l) 个" >> report-03-merged.md
-          echo "model_configs: $(find modelscope_output/hf_model_configs -type f | wc -l) 个" >> report-03-merged.md
+          echo "" >> report-03.md
+          echo "model_cards: $(find modelscope_output/hf_model_cards -type f 2>/dev/null | wc -l) 个" >> report-03.md
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: hf-subset-merged
+          name: hf-subset-behavior
           path: |
             modelscope_output/hf_commit_history.jsonl
             modelscope_output/hf_comments_all.jsonl
             modelscope_output/hf_model_dependencies.jsonl
             modelscope_output/hf_model_cards/
-            modelscope_output/hf_model_configs/
-            report-03-merged.md
+            modelscope_output/state_hf_subset.json
+            report-03.md
           retention-days: 30
