@@ -23,12 +23,13 @@ jobs:
       - run: pip install requests
 
       - name: 下载 HF 全量清单
-        uses: dawidd6/action-download-artifact@v8
-        with:
-          workflow: 01_crawl_hf_full.yml
-          name: hf-models-full
-          path: modelscope_output
-          if_no_artifact_found: warn
+        run: |
+          gh run download --repo ${{ github.repository }} \
+            --workflow 01_crawl_hf_full.yml \
+            --name hf-models-full \
+            --dir modelscope_output || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 下载 HF 对照表
         uses: dawidd6/action-download-artifact@v8
