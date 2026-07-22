@@ -1,0 +1,91 @@
+name: 魔搭全量板块清单
+
+# 每周一 UTC 20:23（北京时间周二 04:23）自动运行，也可手动触发。
+# 用 OpenAPI 前缀切片法采集 datasets / skills / studios 三板块全量清单
+# （绕过 3000 翻页窗口上限；models 板块由 ms_models_full.yml 负责）。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 20 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-sections-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 恢复清单缓存
+        uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: ms-seclists-${{ github.run_id }}
+          restore-keys: |
+            ms-seclists-
+          save-always: true
+
+      - name: 运行三板块全量清单爬虫（断点续爬）
+        run: python crawl_ms_full_lists.py
+
+      - name: 上传数据产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-sections-full-run${{ github.run_number }}
+          path: |
+            modelscope_output/datasets_full.jsonl
+            modelscope_output/datasets_full.json
+            modelscope_output/state_ms_datasets_full.json
+            modelscope_output/skills_full.jsonl
+            modelscope_output/skills_full.json
+            modelscope_output/state_ms_skills_full.json
+            modelscope_output/studios_full.jsonl
+            modelscope_output/studios_full.json
+            modelscope_output/state_ms_studios_full.json
+          retention-days: 30
+
+      - name: 生成并回写进度文件
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, os, datetime
+          base = "modelscope_output"
+          site_totals = {"datasets": 38356, "skills": 76173, "studios": 13300}
+          prog = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  "siteTotals": site_totals, "sections": {}}
+          for kind in ("datasets", "skills", "studios"):
+              total = terms = 0
+              try:
+                  with open(os.path.join(base, f"{kind}_full.json"), encoding="utf-8") as f:
+                      total = len(json.load(f))
+              except Exception as e:
+                  print(f"{kind}_full 读取失败:", e)
+              try:
+                  with open(os.path.join(base, f"state_ms_{kind}_full.json"), encoding="utf-8") as f:
+                      terms = len(json.load(f))
+              except Exception as e:
+                  print(f"{kind} state 读取失败:", e)
+              prog["sections"][kind] = {"collected": total, "termsCompleted": terms}
+          with open("progress_lists.json", "w", encoding="utf-8") as f:
+              json.dump(prog, f, ensure_ascii=False, indent=1)
+          print(json.dumps(prog, ensure_ascii=False))
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add progress_lists.json
+          git diff --cached --quiet || git commit -m "data: 三板块全量清单进度 $(date -u '+%F %H:%M')"
+          git pull --rebase origin main || true
+          git push || echo "::warning::progress_lists.json 推送失败，下次运行会重试"
