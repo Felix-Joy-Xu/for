@@ -28,6 +28,14 @@ jobs:
       - name: 安装依赖
         run: pip install requests
 
+      - name: 恢复全量清单缓存（若有）
+        uses: actions/cache/restore@v4
+        with:
+          path: modelscope_output
+          key: ms-seclists-bridge-${{ github.run_id }}
+          restore-keys: |
+            ms-seclists-
+
       - name: 恢复爬取进度缓存
         uses: actions/cache@v4
         with:

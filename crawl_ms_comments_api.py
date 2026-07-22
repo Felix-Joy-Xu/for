@@ -20,7 +20,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_DIR = Path(__file__).resolve().parent
-MODELS_FILE = BASE_DIR / "modelscope_output" / "models_all.json"
+_OUT = BASE_DIR / "modelscope_output"
+# 优先使用全量清单（openapi 前缀切片产物），缺失时回退旧机构清单
+MODELS_FILE = (_OUT / "models_full.json") if (_OUT / "models_full.json").exists() else (_OUT / "models_all.json")
 OUTPUT_FILE = BASE_DIR / "modelscope_output" / "ms_comments_all.jsonl"
 STATE_FILE = BASE_DIR / "modelscope_output" / "state_ms_comments.json"
 
@@ -82,14 +84,19 @@ def main():
     with open(MODELS_FILE, "r", encoding="utf-8") as f:
         models = json.load(f)
 
-    models.sort(key=lambda x: x.get("Downloads", 0), reverse=True)
+    models.sort(key=lambda x: x.get("Downloads") or x.get("downloads") or 0, reverse=True)
 
     completed = set()
     if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             completed = set(json.load(f))
 
-    todo = [m.get("Id") for m in models if m.get("Id") and m.get("Id") not in completed]
+    # 兼容旧清单的 Id 字段与 openapi 全量清单的 id 字段
+    todo = []
+    for m in models:
+        mid = m.get("Id") or m.get("id")
+        if mid and mid not in completed:
+            todo.append(mid)
     print(f"Total: {len(models)}, Completed: {len(completed)}, Remaining: {len(todo)}", flush=True)
 
     consecutive_errors = 0

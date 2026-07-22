@@ -29,6 +29,9 @@ HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain,
 
 
 def studio_id(item):
+    # openapi 全量清单的 id 直接是 owner/repo_name；旧清单需拼接
+    if item.get("id") and "/" in str(item.get("id")):
+        return item["id"]
     return f"{item.get('CreatedBy', '')}/{item.get('Name', '')}"
 
 
@@ -54,6 +57,14 @@ TARGETS = {
         "get_id": studio_id,
     },
 }
+
+
+def source_path(kind, cfg):
+    """优先使用全量清单（{kind}_full.json），缺失时回退旧清单。"""
+    full = OUT / f"{kind}_full.json"
+    if full.exists():
+        return full
+    return OUT / cfg["source"]
 
 MAX_WORKERS = 5
 SAVE_EVERY = 200
@@ -98,7 +109,7 @@ def fetch_summary(kind, item_id, api_tpl):
 
 
 def crawl_kind(kind, cfg):
-    src = OUT / cfg["source"]
+    src = source_path(kind, cfg)
     if not src.exists():
         print(f"[{kind}] 源文件缺失: {src}", flush=True)
         return
@@ -170,7 +181,7 @@ def main():
     for kind in kinds:
         if abort_flag.is_set():
             break
-        if (OUT / TARGETS[kind]["source"]).exists():
+        if source_path(kind, TARGETS[kind]).exists():
             had_source = True
         crawl_kind(kind, TARGETS[kind])
     if abort_flag.is_set():
