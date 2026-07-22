@@ -1,0 +1,22 @@
+{
+ "updatedAt": "2026-07-22T12:43:13.808962+00:00",
+ "siteTotals": {
+  "datasets": 38356,
+  "skills": 76173,
+  "studios": 13300
+ },
+ "sections": {
+  "datasets": {
+   "collected": 0,
+   "termsCompleted": 1406
+  },
+  "skills": {
+   "collected": 0,
+   "termsCompleted": 0
+  },
+  "studios": {
+   "collected": 0,
+   "termsCompleted": 0
+  }
+ }
+}
