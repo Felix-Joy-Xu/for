@@ -2,6 +2,14 @@ name: 07 - Gitee 数据入库
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["06 - Gitee 全量行为数据"]
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
 
 jobs:
   build-db:
@@ -13,15 +21,35 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install requests
-      - uses: actions/download-artifact@v4
+
+      - name: 下载 Gitee 原始数据
+        uses: actions/download-artifact@v4
         with:
-          path: 02-原始数据/各平台原始数据/gitee_raw
           pattern: gitee-raw-*
+          path: 02-原始数据/各平台原始数据/gitee_raw
           merge-multiple: true
+
       - run: python build_gitee_database.py
+
+      - name: 生成入库报告
+        if: always()
+        run: |
+          echo "# 07 - Gitee 数据入库报告" > report-07.md
+          echo "" >> report-07.md
+          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-07.md
+          echo "" >> report-07.md
+          if [ -f "02-原始数据/01-GitHub数据/gitee_full.db" ]; then
+            ls -lh "02-原始数据/01-GitHub数据/gitee_full.db" >> report-07.md
+            echo "" >> report-07.md
+            python -c "import sqlite3; db=sqlite3.connect('02-原始数据/01-GitHub数据/gitee_full.db'); cur=db.cursor(); cur.execute(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\"); tables=[r[0] for r in cur.fetchall()]; print(f'tables: {len(tables)}'); [print(f'  {t}: {cur.execute(f\"SELECT COUNT(*) FROM {t}\").fetchone()[0]} rows') for t in tables]; db.close()" >> report-07.md
+          else
+            echo "gitee_full.db 未生成" >> report-07.md
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gitee-full-db
-          path: 02-原始数据/01-GitHub数据/gitee_full.db
+          path: |
+            02-原始数据/01-GitHub数据/gitee_full.db
+            report-07.md
           retention-days: 30

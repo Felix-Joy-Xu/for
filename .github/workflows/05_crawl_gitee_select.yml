@@ -3,6 +3,10 @@ name: 05 - Gitee 仓库选择
 on:
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   select:
     runs-on: ubuntu-latest

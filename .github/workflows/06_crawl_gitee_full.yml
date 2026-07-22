@@ -75,15 +75,22 @@ jobs:
           path: |
             modelscope_output
             02-原始数据/各平台原始数据/gitee_raw
-          key: gitee-${{ matrix.repo }}-${{ github.run_id }}
-          restore-keys: gitee-${{ matrix.repo }}-
-          save-always: true
+          key: gitee-${{ matrix.repo }}
+          restore-keys: gitee-${{ matrix.repo }}
       - name: 采集单仓库数据
         run: |
           python crawl_gitee.py --only-repo "${{ matrix.repo }}" --since 2020-01-01
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_TOKENS: ${{ secrets.GITEE_TOKENS }}
+      - name: 生成分片报告
+        if: always()
+        run: |
+          echo "# 06 - Gitee 全量行为数据 (${{ matrix.repo }})" > report-06.md
+          echo "" >> report-06.md
+          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-06.md
+          echo "" >> report-06.md
+          find "02-原始数据/各平台原始数据/gitee_raw/${{ matrix.repo }}" -name "*.jsonl" -exec wc -l {} \; >> report-06.md 2>/dev/null || echo "无 jsonl 输出" >> report-06.md
       - name: 生成合法 artifact 名
         id: artifact-name
         run: |
@@ -94,5 +101,7 @@ jobs:
         if: always()
         with:
           name: ${{ steps.artifact-name.outputs.name }}
-          path: 02-原始数据/各平台原始数据/gitee_raw/
+          path: |
+            02-原始数据/各平台原始数据/gitee_raw/
+            report-06.md
           retention-days: 30

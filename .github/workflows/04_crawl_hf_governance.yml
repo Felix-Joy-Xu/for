@@ -3,6 +3,10 @@ name: 04 - HF 治理文档
 on:
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   governance:
     runs-on: ubuntu-latest

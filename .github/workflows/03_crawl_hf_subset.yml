@@ -41,10 +41,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: modelscope_output
-          key: hf-subset-${{ matrix.shard }}-${{ github.run_id }}
-          restore-keys: |
-            hf-subset-${{ matrix.shard }}-
-            hf-full-
+          key: hf-subset-${{ matrix.shard }}
+          restore-keys: hf-subset-${{ matrix.shard }}
 
       - name: seed 兜底
         run: |
@@ -54,6 +52,19 @@ jobs:
           ls -lh modelscope_output/hf_models_all.jsonl || true
 
       - run: python crawl_hf_subset.py --shard-index ${{ matrix.shard }} --total-shards 10 --total 6000 --top-n 2000 --stratified-n 3000
+
+      - name: 生成分片报告
+        if: always()
+        run: |
+          echo "# 03 - HF 子集行为数据 (shard ${{ matrix.shard }})" > report-03-shard-${{ matrix.shard }}.md
+          echo "" >> report-03-shard-${{ matrix.shard }}.md
+          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-03-shard-${{ matrix.shard }}.md
+          echo "" >> report-03-shard-${{ matrix.shard }}.md
+          for f in modelscope_output/hf_commit_history_shard_${{ matrix.shard }}.jsonl modelscope_output/hf_comments_all_shard_${{ matrix.shard }}.jsonl modelscope_output/hf_model_dependencies_shard_${{ matrix.shard }}.jsonl; do
+            if [ -f "$f" ]; then
+              wc -l "$f" >> report-03-shard-${{ matrix.shard }}.md
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -65,4 +76,70 @@ jobs:
             modelscope_output/state_hf_subset_shard_${{ matrix.shard }}.json
             modelscope_output/hf_model_cards/
             modelscope_output/hf_model_configs/
+            report-03-shard-${{ matrix.shard }}.md
+          retention-days: 30
+
+  merge:
+    needs: subset-shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 下载全部分片
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hf-subset-shard-*
+          path: shards
+          merge-multiple: true
+
+      - name: 合并分片
+        run: |
+          mkdir -p modelscope_output
+          for f in shards/hf_commit_history_shard_*.jsonl; do
+            [ -f "$f" ] && cat "$f"
+          done > modelscope_output/hf_commit_history.jsonl
+
+          for f in shards/hf_comments_all_shard_*.jsonl; do
+            [ -f "$f" ] && cat "$f"
+          done > modelscope_output/hf_comments_all.jsonl
+
+          for f in shards/hf_model_dependencies_shard_*.jsonl; do
+            [ -f "$f" ] && cat "$f"
+          done > modelscope_output/hf_model_dependencies.jsonl
+
+          mkdir -p modelscope_output/hf_model_cards modelscope_output/hf_model_configs
+          find shards -type d -name "hf_model_cards" -exec cp -r {}/* modelscope_output/hf_model_cards/ \;
+          find shards -type d -name "hf_model_configs" -exec cp -r {}/* modelscope_output/hf_model_configs/ \;
+
+      - name: 生成合并报告
+        run: |
+          echo "# 03 - HF 子集行为数据合并报告" > report-03-merged.md
+          echo "" >> report-03-merged.md
+          echo "运行时间: $(date -u +%F' '%T' UTC')" >> report-03-merged.md
+          echo "" >> report-03-merged.md
+          for f in modelscope_output/hf_commit_history.jsonl modelscope_output/hf_comments_all.jsonl modelscope_output/hf_model_dependencies.jsonl; do
+            if [ -f "$f" ]; then
+              wc -l "$f" >> report-03-merged.md
+              ls -lh "$f" >> report-03-merged.md
+            fi
+          done
+          echo "" >> report-03-merged.md
+          echo "model_cards: $(find modelscope_output/hf_model_cards -type f | wc -l) 个" >> report-03-merged.md
+          echo "model_configs: $(find modelscope_output/hf_model_configs -type f | wc -l) 个" >> report-03-merged.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hf-subset-merged
+          path: |
+            modelscope_output/hf_commit_history.jsonl
+            modelscope_output/hf_comments_all.jsonl
+            modelscope_output/hf_model_dependencies.jsonl
+            modelscope_output/hf_model_cards/
+            modelscope_output/hf_model_configs/
+            report-03-merged.md
           retention-days: 30
