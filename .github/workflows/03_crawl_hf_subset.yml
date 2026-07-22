@@ -3,6 +3,10 @@ name: 03 - HF 子集行为数据
 on:
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   subset-shard:
     runs-on: ubuntu-latest
@@ -17,6 +21,23 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install requests
+
+      - name: 下载 HF 全量清单
+        uses: dawidd6/action-download-artifact@v8
+        with:
+          workflow: 01_crawl_hf_full.yml
+          name: hf-models-full
+          path: modelscope_output
+          if_no_artifact_found: warn
+
+      - name: 下载 HF 对照表
+        uses: dawidd6/action-download-artifact@v8
+        with:
+          workflow: hf_counterpart.yml
+          name: hf-cross-snapshot
+          path: modelscope_output
+          if_no_artifact_found: warn
+
       - uses: actions/cache@v4
         with:
           path: modelscope_output
@@ -24,11 +45,14 @@ jobs:
           restore-keys: |
             hf-subset-${{ matrix.shard }}-
             hf-full-
-          save-always: true
-      - run: |
-          if [ ! -f modelscope_output/models_all.json ]; then
+
+      - name: seed 兜底
+        run: |
+          if [ ! -f modelscope_output/hf_models_all.jsonl ]; then
             tar -xzf seed/modelscope_seed.tar.gz || true
           fi
+          ls -lh modelscope_output/hf_models_all.jsonl || true
+
       - run: python crawl_hf_subset.py --shard-index ${{ matrix.shard }} --total-shards 10 --total 6000 --top-n 2000 --stratified-n 3000
       - uses: actions/upload-artifact@v4
         if: always()

@@ -53,7 +53,16 @@ HEADERS = {
 }
 
 MODELS_FILE = OUTPUT_DIR / "hf_models_all.jsonl"
-MATCH_FILE = OUTPUT_DIR / "cross_platform_match.json"
+
+# 对照表可能来自 HF 对照采集（cross_platform_match.json）或 02 更新匹配表（cross_platform_match_full.json）
+def match_file() -> Path | None:
+    for name in ["cross_platform_match.json", "cross_platform_match_full.json"]:
+        p = OUTPUT_DIR / name
+        if p.exists():
+            return p
+    return None
+
+MATCH_FILE = match_file()
 
 # 分片支持：通过 --shard-index/--total-shards 多 job 并行
 SHARD_INDEX = 0
@@ -140,7 +149,7 @@ def select_subset(total: int = DEFAULT_TOTAL, top_n: int = DEFAULT_TOP_N,
     selected = set()
 
     # 1. 与魔搭匹配的模型对
-    if MATCH_FILE.exists():
+    if MATCH_FILE and MATCH_FILE.exists():
         with open(MATCH_FILE, "r", encoding="utf-8") as f:
             matches = json.load(f)
         for m in matches:
