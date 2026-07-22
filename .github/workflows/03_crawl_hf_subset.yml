@@ -24,10 +24,16 @@ jobs:
 
       - name: 下载 HF 全量清单
         run: |
-          gh run download --repo ${{ github.repository }} \
+          set -e
+          RUN_ID=$(gh run list --repo ${{ github.repository }} \
             --workflow 01_crawl_hf_full.yml \
+            --branch main \
+            --json databaseId,conclusion \
+            --jq '.[0] | select(.conclusion == "success") | .databaseId')
+          echo "01 run id: $RUN_ID"
+          gh run download "$RUN_ID" --repo ${{ github.repository }} \
             --name hf-models-full \
-            --dir modelscope_output || true
+            --dir modelscope_output
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
