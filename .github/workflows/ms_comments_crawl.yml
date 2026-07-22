@@ -27,6 +27,14 @@ jobs:
       - name: 安装依赖
         run: pip install requests
 
+      - name: 恢复全量清单缓存（若有）
+        uses: actions/cache/restore@v4
+        with:
+          path: modelscope_output
+          key: ms-models-bridge-${{ github.run_id }}
+          restore-keys: |
+            ms-models-
+
       - name: 恢复爬取进度缓存
         uses: actions/cache@v4
         with:
@@ -71,7 +79,8 @@ jobs:
           except Exception as e:
               print("state 读取失败:", e)
           try:
-              with open(os.path.join(base, "models_all.json"), encoding="utf-8") as f:
+              src = "models_full.json" if os.path.exists(os.path.join(base, "models_full.json")) else "models_all.json"
+              with open(os.path.join(base, src), encoding="utf-8") as f:
                   total = len(json.load(f))
           except Exception as e:
               print("models 读取失败:", e)
