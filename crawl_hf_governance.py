@@ -58,6 +58,66 @@ session.headers.update({
     "Accept": "text/html,application/xhtml+xml",
 })
 
+# 常见的 HF 导航/侧边栏噪音（按出现顺序过滤）
+NAV_NOISE = [
+    "Hub documentation", "View all docs", "AWS Trainium & Inferentia", "Accelerate",
+    "Argilla", "AutoTrain", "Bitsandbytes", "CLI", "Chat UI", "Dataset viewer",
+    "Datasets", "Deploying on AWS", "Diffusers", "Evaluate", "Fine-tune", "Gradio",
+    "Hub", "Inference API", "Inference Endpoints", "JAX", "Keras", "MLflow",
+    "ONNX", "Optimum", "PEFT", "Safetensors", "Sentence Transformers", "SetFit",
+    "Skops", "Smolagents", "Spaces", "Timm", "Transformers", "Transformers.js",
+    "Xet", "smolagents", "timm", "Search documentation", "API docs",
+    "Join the Hugging Face community", "and get access to the augmented documentation experience",
+    "Collaborate on models, datasets and Spaces", "Faster examples with accelerated inference",
+    "Switch between documentation themes", "Sign Up", "to get started", "Copy page",
+    "EN", "Sign up", "Log in", "Models", "Datasets", "Spaces", "Posts", "Docs",
+    "Enterprise", "Pricing", "🏡 View all docs", "←", "→",
+]
+
+
+def extract_main_content(html: str) -> str:
+    """从 HF 页面提取正文，过滤导航噪音。"""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return ""
+
+    # 去掉脚本/样式/导航/页脚
+    for tag in soup.select("script, style, nav, footer, header, aside"):
+        tag.decompose()
+
+    # 按优先级选择正文容器
+    main = (
+        soup.find("article")
+        or soup.select_one(".prose")
+        or soup.select_one(".markdown")
+        or soup.select_one("[class*='prose']")
+        or soup.select_one("[class*='markdown']")
+        or soup.select_one("[class*='content']")
+        or soup.find("main")
+        or soup.find("body")
+    )
+    if not main:
+        return ""
+
+    text = main.get_text(separator="\n", strip=True)
+
+    # 清理空行并过滤导航噪音
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 过滤纯数字、单个字符、导航链接
+        if len(line) <= 2:
+            continue
+        if line in NAV_NOISE:
+            continue
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
 metadata = []
 for name, url, label in HF_TARGETS:
     print(f"\n--- {label} ---")
@@ -68,19 +128,8 @@ for name, url, label in HF_TARGETS:
         if r.status_code != 200 or len(r.text) < 500:
             continue
 
-        # 优先提取正文
-        try:
-            soup = BeautifulSoup(r.text, "lxml")
-            # 去掉头尾的 nav/footer
-            for tag in soup.select("script, style, nav, footer, header, aside"):
-                tag.decompose()
-            main = (soup.find("main") or soup.select_one("[class*='content']") 
-                    or soup.find("body"))
-            text = main.get_text(separator="\n", strip=True) if main else soup.get_text(separator="\n", strip=True)
-            # 清理空行
-            lines = [l.strip() for l in text.split("\n") if l.strip()]
-            text = "\n".join(lines)
-        except:
+        text = extract_main_content(r.text)
+        if not text:
             text = r.text
 
         path = os.path.join(HF_DIR, f"hf_{name}.txt")
@@ -100,7 +149,8 @@ for name, url, label in HF_TARGETS:
             "status": "success",
         })
         # 预览
-        for line in lines[:3]:
+        preview_lines = [l.strip() for l in text.split("\n") if l.strip()][:3]
+        for line in preview_lines:
             print(f"    | {line[:80]}")
     except Exception as e:
         print(f"  ERR: {str(e)[:80]}")
