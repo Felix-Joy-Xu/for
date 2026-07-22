@@ -55,7 +55,17 @@ jobs:
           fi
           ls -lh modelscope_output/hf_models_all.jsonl || true
 
-      - run: python crawl_hf_subset.py --shard-index ${{ matrix.shard }} --total-shards 10 --total 2000 --top-n 1000 --stratified-n 1000
+      - name: 采集 HF 子集行为数据
+        run: |
+          python crawl_hf_subset.py \
+            --shard-index ${{ matrix.shard }} \
+            --total-shards 10 \
+            --total 2000 \
+            --top-n 1000 \
+            --stratified-n 1000 \
+            --workers 8
+        env:
+          HF_BASE: https://huggingface.co
 
       - name: 生成分片报告
         if: always()

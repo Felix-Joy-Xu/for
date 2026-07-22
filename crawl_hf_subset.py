@@ -45,7 +45,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "modelscope_output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-HF_ORIGIN = "https://hf-mirror.com"
+HF_ORIGIN = os.environ.get("HF_BASE", "https://hf-mirror.com").rstrip("/")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -255,8 +255,10 @@ def fetch_json(session: requests.Session, url: str, max_retries: int = 3) -> tup
     return None, -1
 
 
-def fetch_model_subset(session: requests.Session, model_id: str, save_files: bool = True) -> dict:
+def fetch_model_subset(session: requests.Session, model_id: str, save_files: bool = True,
+                       timeout_seconds: int = 60) -> dict:
     """采集单个模型的子集数据。"""
+    start_time = time.time()
     result = {
         "model_id": model_id,
         "crawled_at": time.time(),
@@ -267,86 +269,98 @@ def fetch_model_subset(session: requests.Session, model_id: str, save_files: boo
         "tree": {"status": "pending"},
     }
 
+    def time_left() -> bool:
+        return time.time() - start_time < timeout_seconds
+
     # 1. commits
-    commits_url = f"{HF_ORIGIN}/api/models/{model_id}/commits"
-    commits_data, commits_status = fetch_json(session, commits_url)
-    result["commits"] = {
-        "status": "success" if commits_status == 200 else "error",
-        "http_status": commits_status,
-        "url": commits_url,
-        "data": commits_data if commits_status == 200 else None,
-    }
+    if time_left():
+        commits_url = f"{HF_ORIGIN}/api/models/{model_id}/commits"
+        commits_data, commits_status = fetch_json(session, commits_url)
+        result["commits"] = {
+            "status": "success" if commits_status == 200 else "error",
+            "http_status": commits_status,
+            "url": commits_url,
+            "data": commits_data if commits_status == 200 else None,
+        }
 
     # 2. discussions
-    disc_url = f"{HF_ORIGIN}/api/models/{model_id}/discussions"
-    disc_data, disc_status = fetch_json(session, disc_url)
-    result["discussions"] = {
-        "status": "success" if disc_status == 200 else "error",
-        "http_status": disc_status,
-        "url": disc_url,
-        "data": disc_data if disc_status == 200 else None,
-    }
+    if time_left():
+        disc_url = f"{HF_ORIGIN}/api/models/{model_id}/discussions"
+        disc_data, disc_status = fetch_json(session, disc_url)
+        result["discussions"] = {
+            "status": "success" if disc_status == 200 else "error",
+            "http_status": disc_status,
+            "url": disc_url,
+            "data": disc_data if disc_status == 200 else None,
+        }
 
     # 3. README
-    readme_text, readme_status = "", 0
-    for branch in ["main", "master"]:
-        url = f"{HF_ORIGIN}/{model_id}/raw/{branch}/README.md"
-        text, status = fetch_text(session, url)
-        if status == 200 and len(text) > 30:
-            readme_text, readme_status = text, status
-            break
-    result["readme"] = {
-        "status": "success" if readme_status == 200 else "error",
-        "http_status": readme_status,
-        "length": len(readme_text),
-    }
-    if save_files and readme_status == 200:
-        with open(CARD_DIR / f"{safe_id(model_id)}_README.md", "w", encoding="utf-8") as f:
-            f.write(readme_text)
+    if time_left():
+        readme_text, readme_status = "", 0
+        for branch in ["main", "master"]:
+            if not time_left():
+                break
+            url = f"{HF_ORIGIN}/{model_id}/raw/{branch}/README.md"
+            text, status = fetch_text(session, url)
+            if status == 200 and len(text) > 30:
+                readme_text, readme_status = text, status
+                break
+        result["readme"] = {
+            "status": "success" if readme_status == 200 else "error",
+            "http_status": readme_status,
+            "length": len(readme_text),
+        }
+        if save_files and readme_status == 200:
+            with open(CARD_DIR / f"{safe_id(model_id)}_README.md", "w", encoding="utf-8") as f:
+                f.write(readme_text)
 
     # 4. config.json
-    config_text, config_status = "", 0
-    for branch in ["main", "master"]:
-        url = f"{HF_ORIGIN}/{model_id}/raw/{branch}/config.json"
-        text, status = fetch_text(session, url)
-        if status == 200 and len(text) > 10:
-            config_text, config_status = text, status
-            break
-    result["config"] = {
-        "status": "success" if config_status == 200 else "error",
-        "http_status": config_status,
-        "length": len(config_text),
-    }
-    if save_files and config_status == 200:
-        try:
-            cfg_json = json.loads(config_text)
-            with open(CONFIG_DIR / f"{safe_id(model_id)}_config.json", "w", encoding="utf-8") as f:
-                json.dump(cfg_json, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+    if time_left():
+        config_text, config_status = "", 0
+        for branch in ["main", "master"]:
+            if not time_left():
+                break
+            url = f"{HF_ORIGIN}/{model_id}/raw/{branch}/config.json"
+            text, status = fetch_text(session, url)
+            if status == 200 and len(text) > 10:
+                config_text, config_status = text, status
+                break
+        result["config"] = {
+            "status": "success" if config_status == 200 else "error",
+            "http_status": config_status,
+            "length": len(config_text),
+        }
+        if save_files and config_status == 200:
+            try:
+                cfg_json = json.loads(config_text)
+                with open(CONFIG_DIR / f"{safe_id(model_id)}_config.json", "w", encoding="utf-8") as f:
+                    json.dump(cfg_json, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
 
     # 5. tree / file_size
-    tree_url = f"{HF_ORIGIN}/api/models/{model_id}/tree/main"
-    tree_data, tree_status = fetch_json(session, tree_url)
-    if tree_status != 200:
-        tree_url = f"{HF_ORIGIN}/api/models/{model_id}/tree/master"
+    if time_left():
+        tree_url = f"{HF_ORIGIN}/api/models/{model_id}/tree/main"
         tree_data, tree_status = fetch_json(session, tree_url)
+        if tree_status != 200:
+            tree_url = f"{HF_ORIGIN}/api/models/{model_id}/tree/master"
+            tree_data, tree_status = fetch_json(session, tree_url)
 
-    file_size = 0
-    file_count = 0
-    if tree_status == 200 and isinstance(tree_data, list):
-        for f in tree_data:
-            if f.get("type") == "file" and f.get("size"):
-                file_size += f["size"]
-                file_count += 1
+        file_size = 0
+        file_count = 0
+        if tree_status == 200 and isinstance(tree_data, list):
+            for f in tree_data:
+                if f.get("type") == "file" and f.get("size"):
+                    file_size += f["size"]
+                    file_count += 1
 
-    result["tree"] = {
-        "status": "success" if tree_status == 200 else "error",
-        "http_status": tree_status,
-        "url": tree_url,
-        "file_count": file_count,
-        "file_size": file_size,
-    }
+        result["tree"] = {
+            "status": "success" if tree_status == 200 else "error",
+            "http_status": tree_status,
+            "url": tree_url,
+            "file_count": file_count,
+            "file_size": file_size,
+        }
 
     return result
 
