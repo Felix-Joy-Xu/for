@@ -21,21 +21,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 下载 Gitee 选仓结果
-        uses: actions/download-artifact@v4
-        with:
-          name: gitee-selected
-          path: modelscope_output
-          run-id: ${{ github.event.inputs.select_run_id || github.event.workflow_run.id || '0' }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: 若未指定 run-id，尝试下载最新 artifact
-        if: failure()
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: 05_crawl_gitee_select.yml
           name: gitee-selected
           path: modelscope_output
+          if_no_artifact_found: fail
 
       - uses: actions/setup-python@v5
         with:
