@@ -10,7 +10,7 @@ permissions:
 jobs:
   match:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,7 +41,7 @@ jobs:
           ls -lh modelscope_output/hf_models_all.jsonl || true
           ls -lh modelscope_output/models_all.json || true
 
-      - run: python update_cross_platform_match.py --skip-fuzzy --workers 4
+      - run: python update_cross_platform_match.py --matched-only --skip-fuzzy --workers 4
       - uses: actions/upload-artifact@v4
         if: always()
         with:

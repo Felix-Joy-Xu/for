@@ -310,7 +310,7 @@ def build_match_table(ms_models: dict, hf_models: dict, fuzzy_threshold: float =
     return exact_matches + alias_matches + name_matches + fuzzy_matches, matched_ms, matched_hf
 
 
-def build_records(matches, ms_models, hf_models, matched_ms, matched_hf):
+def build_records(matches, ms_models, hf_models, matched_ms, matched_hf, matched_only=False):
     """把匹配结果组装为最终记录。"""
     records = []
     for ms, hf, method in matches:
@@ -348,57 +348,58 @@ def build_records(matches, ms_models, hf_models, matched_ms, matched_hf):
             "created_at_hf": hf.get("createdAt", ""),
         })
 
-    # 仅魔搭有
-    for key, ms in ms_models.items():
-        if key in matched_ms:
-            continue
-        ms_id = ms.get("Id") or ms.get("id") or ""
-        records.append({
-            "label": "",
-            "msap_id": ms_id,
-            "hf_id": None,
-            "platform_presence": "ms_only",
-            "match_method": "",
-            "has_hf_counterpart": False,
-            "hf_gated": None,
-            "downloads_msap": ms.get("Downloads") or ms.get("downloads") or 0,
-            "downloads_hf": None,
-            "download_ratio_hf_over_msap": None,
-            "license_msap": extract_license_ms(ms),
-            "license_hf": None,
-            "license_match": None,
-            "hf_readme_length": 0,
-            "msap_readme_length": 0,
-            "tags_hf": [],
-            "last_modified_hf": "",
-            "created_at_hf": "",
-        })
+    if not matched_only:
+        # 仅魔搭有
+        for key, ms in ms_models.items():
+            if key in matched_ms:
+                continue
+            ms_id = ms.get("Id") or ms.get("id") or ""
+            records.append({
+                "label": "",
+                "msap_id": ms_id,
+                "hf_id": None,
+                "platform_presence": "ms_only",
+                "match_method": "",
+                "has_hf_counterpart": False,
+                "hf_gated": None,
+                "downloads_msap": ms.get("Downloads") or ms.get("downloads") or 0,
+                "downloads_hf": None,
+                "download_ratio_hf_over_msap": None,
+                "license_msap": extract_license_ms(ms),
+                "license_hf": None,
+                "license_match": None,
+                "hf_readme_length": 0,
+                "msap_readme_length": 0,
+                "tags_hf": [],
+                "last_modified_hf": "",
+                "created_at_hf": "",
+            })
 
-    # 仅 HF 有
-    for key, hf in hf_models.items():
-        if key in matched_hf:
-            continue
-        hf_id = hf.get("id") or hf.get("modelId") or ""
-        records.append({
-            "label": "",
-            "msap_id": None,
-            "hf_id": hf_id,
-            "platform_presence": "hf_only",
-            "match_method": "",
-            "has_hf_counterpart": False,
-            "hf_gated": bool(hf.get("gated")),
-            "downloads_msap": None,
-            "downloads_hf": hf.get("downloads") or 0,
-            "download_ratio_hf_over_msap": None,
-            "license_msap": None,
-            "license_hf": extract_license_hf(hf),
-            "license_match": None,
-            "hf_readme_length": 0,
-            "msap_readme_length": 0,
-            "tags_hf": hf.get("tags", []),
-            "last_modified_hf": hf.get("lastModified", ""),
-            "created_at_hf": hf.get("createdAt", ""),
-        })
+        # 仅 HF 有
+        for key, hf in hf_models.items():
+            if key in matched_hf:
+                continue
+            hf_id = hf.get("id") or hf.get("modelId") or ""
+            records.append({
+                "label": "",
+                "msap_id": None,
+                "hf_id": hf_id,
+                "platform_presence": "hf_only",
+                "match_method": "",
+                "has_hf_counterpart": False,
+                "hf_gated": bool(hf.get("gated")),
+                "downloads_msap": None,
+                "downloads_hf": hf.get("downloads") or 0,
+                "download_ratio_hf_over_msap": None,
+                "license_msap": None,
+                "license_hf": extract_license_hf(hf),
+                "license_match": None,
+                "hf_readme_length": 0,
+                "msap_readme_length": 0,
+                "tags_hf": hf.get("tags", []),
+                "last_modified_hf": hf.get("lastModified", ""),
+                "created_at_hf": hf.get("createdAt", ""),
+            })
 
     return records
 
@@ -414,6 +415,8 @@ def main():
                         help="模糊匹配多进程数（默认 4）")
     parser.add_argument("--skip-fuzzy", action="store_true",
                         help="跳过 fuzzy 匹配，只保留 exact/alias/name（大幅提速）")
+    parser.add_argument("--matched-only", action="store_true",
+                        help="只输出匹配成功的模型对，跳过 ms_only / hf_only（大幅提速）")
     parser.add_argument("--stats-only", action="store_true", help="仅打印统计，不写文件")
     args = parser.parse_args()
 
@@ -443,7 +446,8 @@ def main():
           f"fuzzy={len([m for m in matches if m[2]=='fuzzy'])}")
     print(f"[match] 仅魔搭有: {len(ms_models)-len(matched_ms)}, 仅 HF 有: {len(hf_models)-len(matched_hf)}")
 
-    records = build_records(matches, ms_models, hf_models, matched_ms, matched_hf)
+    records = build_records(matches, ms_models, hf_models, matched_ms, matched_hf,
+                            matched_only=args.matched_only)
 
     # 统计
     presence_count = {}
