@@ -2,6 +2,15 @@ name: 06 - Gitee 全量行为数据
 
 on:
   workflow_dispatch:
+    inputs:
+      select_run_id:
+        description: '05 - Gitee 仓库选择 的 run id（留空则自动下载最新 gitee-selected artifact）'
+        required: false
+        default: ''
+  workflow_run:
+    workflows: ["05 - Gitee 仓库选择"]
+    types:
+      - completed
 
 jobs:
   prepare:
@@ -10,20 +19,42 @@ jobs:
       repos: ${{ steps.set.outputs.repos }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: 下载 Gitee 选仓结果
+        uses: actions/download-artifact@v4
+        with:
+          name: gitee-selected
+          path: modelscope_output
+          run-id: ${{ github.event.inputs.select_run_id || github.event.workflow_run.id || '0' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: 若未指定 run-id，尝试下载最新 artifact
+        if: failure()
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: 05_crawl_gitee_select.yml
+          name: gitee-selected
+          path: modelscope_output
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
       - id: set
         run: |
           python - <<'EOF'
-          import json
-          try:
-              with open("modelscope_output/gitee_selected_repos.json", encoding="utf-8") as f:
-                  selected = json.load(f)
-              repos = [f"{s['owner']}/{s['repo']}" for s in selected if s.get("selected")]
-              print("repos=" + json.dumps(repos))
-          except Exception:
-              print("repos=[]")
+          import json, os
+          path = "modelscope_output/gitee_selected_repos.json"
+          repos = []
+          if os.path.exists(path):
+              try:
+                  with open(path, encoding="utf-8") as f:
+                      selected = json.load(f)
+                  repos = [f"{s['owner']}/{s['repo']}" for s in selected if s.get("selected")]
+              except Exception as e:
+                  print("parse error:", e)
+          print("repos=" + json.dumps(repos))
           EOF
 
   crawl-repo:
@@ -57,6 +88,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gitee-raw-${{ matrix.repo }}
+          name: gitee-raw-${{ replace(matrix.repo, '/', '-') }}
           path: 02-原始数据/各平台原始数据/gitee_raw/
           retention-days: 30
