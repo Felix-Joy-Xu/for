@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
-"""魔搭评论正文爬虫 - API 直采版。
+"""魔搭评论正文爬虫 - 多板块 API 直采版。
 
-在 comments/summary 汇总数据基础上，抓取有社区互动的模型的完整内容：
+在汇总数据基础上，抓取有社区互动的目标的完整内容：
 - 4 类主帖：comment（评价）、issue（open/closed）、discussion、pr（open/closed）
-- 每个主帖的全部回复（/comments/{cid} 接口）
-- 富文本 Content 已提取为纯文本 content_text
+- 每个主帖的全部回复
+- 富文本 Content 提取为纯文本 content_text
 
-模型清单来源: ms_comments_all.jsonl 中 summary 各计数 > 0 的模型。
-输出: modelscope_output/ms_comment_texts.jsonl（每行一个模型）
-状态: modelscope_output/state_ms_comment_texts.json（断点续爬）
+板块配置（接口前缀均已实测）：
+  models   /api/v1/models/{}                （源 ms_comments_all.jsonl）
+  skills   /api/v1/skills/{}                （源 ms_comments_skills.jsonl）
+  mcp      /api/v1/mcpServers/{}            （源 ms_comments_mcp.jsonl）
+  datasets /api/v1/discussions/datasetsComment/{} （源 ms_comments_datasets.jsonl）
+  studios  /api/v1/studio/{}                （源 ms_comments_studios.jsonl）
 
-环境变量 MS_TEXT_LIMIT=N 可限制本次处理的模型数（本地调试用）。
+每个板块独立输出与断点。环境变量：
+  MS_TEXT_SECTIONS=models,skills  限定板块（默认全部）
+  MS_TEXT_LIMIT=N                 每板块本轮最多处理 N 个（调试用）
 """
 import json
 import os
@@ -22,16 +27,48 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_DIR = Path(__file__).resolve().parent
-SUMMARY_FILE = BASE_DIR / "modelscope_output" / "ms_comments_all.jsonl"
-OUTPUT_FILE = BASE_DIR / "modelscope_output" / "ms_comment_texts.jsonl"
-STATE_FILE = BASE_DIR / "modelscope_output" / "state_ms_comment_texts.json"
+OUT = BASE_DIR / "modelscope_output"
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*"}
-API = "https://www.modelscope.cn/api/v1"
 
-# (Type, OpenStatus) 组合；OpenStatus 为 None 表示不带该参数。
-# 具体类型在前（主帖可获得 open/closed 标签），Type=comment 兜底放最后
-# （它返回全部类型的合集，用于接住前面组合可能遗漏的主帖）。
+SECTIONS = {
+    "models": {
+        "api": "/api/v1/models/{}",
+        "summary": "ms_comments_all.jsonl",
+        "output": "ms_comment_texts.jsonl",
+        "state": "state_ms_comment_texts.json",
+        "id_field": "model_id",
+    },
+    "skills": {
+        "api": "/api/v1/skills/{}",
+        "summary": "ms_comments_skills.jsonl",
+        "output": "ms_comment_texts_skills.jsonl",
+        "state": "state_ms_comment_texts_skills.json",
+        "id_field": "target_id",
+    },
+    "mcp": {
+        "api": "/api/v1/mcpServers/{}",
+        "summary": "ms_comments_mcp.jsonl",
+        "output": "ms_comment_texts_mcp.jsonl",
+        "state": "state_ms_comment_texts_mcp.json",
+        "id_field": "target_id",
+    },
+    "datasets": {
+        "api": "/api/v1/discussions/datasetsComment/{}",
+        "summary": "ms_comments_datasets.jsonl",
+        "output": "ms_comment_texts_datasets.jsonl",
+        "state": "state_ms_comment_texts_datasets.json",
+        "id_field": "target_id",
+    },
+    "studios": {
+        "api": "/api/v1/studio/{}",
+        "summary": "ms_comments_studios.jsonl",
+        "output": "ms_comment_texts_studios.jsonl",
+        "state": "state_ms_comment_texts_studios.json",
+        "id_field": "target_id",
+    },
+}
+
 COMBOS = [
     ("issue", "open"),
     ("issue", "closed"),
@@ -51,13 +88,10 @@ abort_flag = threading.Event()
 
 
 def extract_text(node):
-    """从富文本树提取纯文本。结构为 [tag, attrs, ...children]，
-    attrs 含 data-type=leaf 时后一个元素是字符串。"""
     parts = []
     if isinstance(node, str):
         return node
     if isinstance(node, list):
-        # leaf: [tag, {"data-type": "leaf"}, "文本"]
         if len(node) >= 3 and isinstance(node[1], dict) and node[1].get("data-type") == "leaf":
             if isinstance(node[2], str):
                 return node[2]
@@ -79,7 +113,6 @@ def content_to_text(raw):
 
 
 def get_json(url, retries=3):
-    """带重试的 GET。返回 (json_dict, ok)。ok=False 表示网络类失败。"""
     for attempt in range(retries):
         try:
             r = requests.get(url, headers=HEADERS, timeout=15)
@@ -89,7 +122,7 @@ def get_json(url, retries=3):
                 time.sleep(2 ** attempt)
                 continue
             if r.status_code == 404:
-                return {}, True  # 无此资源，视为确定答复
+                return {}, True
             if attempt < retries - 1:
                 time.sleep(1 + attempt)
                 continue
@@ -102,12 +135,11 @@ def get_json(url, retries=3):
     return {}, False
 
 
-def fetch_threads(model_id, ctype, open_status):
-    """翻页抓取某类主帖，返回 (threads, ok)。"""
+def fetch_threads(base_url, ctype, open_status):
     threads = []
     offset = 0
     while True:
-        url = (f"{API}/models/{model_id}/comments/list"
+        url = (f"{base_url}/comments/list"
                f"?Offset={offset}&PageSize={PAGE_SIZE}&PageNumber={offset // PAGE_SIZE + 1}&Type={ctype}")
         if open_status:
             url += f"&OpenStatus={open_status}"
@@ -125,9 +157,8 @@ def fetch_threads(model_id, ctype, open_status):
     return threads, True
 
 
-def fetch_replies(model_id, comment_id):
-    """抓取一个主帖的全部回复。"""
-    url = f"{API}/models/{model_id}/comments/{comment_id}?PageSize=1000&Offset=0"
+def fetch_replies(base_url, comment_id):
+    url = f"{base_url}/comments/{comment_id}?PageSize=1000&Offset=0"
     j, ok = get_json(url)
     if not ok:
         return [], False
@@ -139,17 +170,17 @@ def slim_creator(c):
     return {"id": c.get("Id"), "name": c.get("Name"), "nickname": c.get("NickName")}
 
 
-def fetch_model(model_id):
-    """抓取一个模型的全部主帖+回复。返回 (record, definitive)。"""
-    record = {"model_id": model_id, "status": "success", "crawled_at": time.time()}
+def fetch_target(kind, item_id, api_tpl):
+    base_url = "https://www.modelscope.cn" + api_tpl.format(item_id)
+    record = {"kind": kind, "target_id": item_id, "status": "success", "crawled_at": time.time()}
     all_threads = []
-    seen_ids = set()  # Type=comment 返回全部类型主帖，与 issue/pr 组合重叠，按 id 去重
+    seen_ids = set()
     net_fail = False
 
     for ctype, open_status in COMBOS:
         if abort_flag.is_set():
             break
-        raw_threads, ok = fetch_threads(model_id, ctype, open_status)
+        raw_threads, ok = fetch_threads(base_url, ctype, open_status)
         if not ok:
             net_fail = True
             continue
@@ -160,7 +191,7 @@ def fetch_model(model_id):
             seen_ids.add(tid)
             replies = []
             if (t.get("TotalChildren") or 0) > 0:
-                reps, rok = fetch_replies(model_id, t.get("Id"))
+                reps, rok = fetch_replies(base_url, tid)
                 if rok:
                     replies = [{
                         "id": r.get("Id"),
@@ -171,7 +202,7 @@ def fetch_model(model_id):
                     } for r in reps]
                 time.sleep(0.15)
             all_threads.append({
-                "id": t.get("Id"),
+                "id": tid,
                 "type": t.get("Type") or ctype,
                 "open_status": open_status,
                 "is_open": t.get("IsOpen"),
@@ -199,10 +230,9 @@ def fetch_model(model_id):
     return record, True
 
 
-def load_active_models():
-    """从汇总数据筛选有社区互动的模型（去重）。"""
+def load_active(summary_path, id_field):
     active = {}
-    with open(SUMMARY_FILE, "r", encoding="utf-8") as f:
+    with open(summary_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -211,50 +241,52 @@ def load_active_models():
                 r = json.loads(line)
             except Exception:
                 continue
-            mid = r.get("model_id")
-            if not mid or mid in active:
+            iid = r.get(id_field)
+            if not iid or iid in active:
                 continue
             for it in r.get("api_intercepts") or []:
                 d = (it.get("data") or {}).get("Data") or {}
                 keys = ("Count", "DiscussionCount", "IssueOpenCount",
                         "IssueClosedCount", "PrOpenCount", "PrClosedCount", "TotalCount")
                 if any((d.get(k) or 0) > 0 for k in keys):
-                    active[mid] = True
+                    active[iid] = True
                     break
     return sorted(active.keys())
 
 
-def main():
-    if not SUMMARY_FILE.exists():
-        print(f"File not found: {SUMMARY_FILE}", flush=True)
-        sys.exit(2)
+def crawl_section(kind, cfg):
+    summary_path = OUT / cfg["summary"]
+    if not summary_path.exists():
+        print(f"[{kind}] 汇总文件缺失: {summary_path}，跳过", flush=True)
+        return
+    active = load_active(summary_path, cfg["id_field"])
 
-    active = load_active_models()
-
+    state_file = OUT / cfg["state"]
+    out_file = OUT / cfg["output"]
     completed = set()
-    if STATE_FILE.exists():
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
+    if state_file.exists():
+        with open(state_file, "r", encoding="utf-8") as f:
             completed = set(json.load(f))
 
-    todo = [m for m in active if m not in completed]
+    todo = [i for i in active if i not in completed]
     if LIMIT > 0:
         todo = todo[:LIMIT]
-    print(f"Active models: {len(active)}, Completed: {len(completed)}, Remaining: {len(todo)}", flush=True)
+    print(f"[{kind}] 活跃 {len(active)}，已完成 {len(completed)}，待采 {len(todo)}", flush=True)
 
     consecutive_errors = 0
     done_this_run = 0
 
-    with open(OUTPUT_FILE, "a", encoding="utf-8") as out_f:
+    with open(out_file, "a", encoding="utf-8") as out_f:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            future_to_model = {executor.submit(fetch_model, m): m for m in todo}
-            for future in as_completed(future_to_model):
+            futures = {executor.submit(fetch_target, kind, iid, cfg["api"]): iid for iid in todo}
+            for future in as_completed(futures):
                 if abort_flag.is_set():
                     break
-                m_id = future_to_model[future]
+                iid = futures[future]
                 try:
                     record, definitive = future.result()
                 except Exception as e:
-                    record = {"model_id": m_id, "status": "error",
+                    record = {"kind": kind, "target_id": iid, "status": "error",
                               "error": str(e), "crawled_at": time.time()}
                     definitive = False
 
@@ -262,24 +294,35 @@ def main():
                 out_f.flush()
 
                 if definitive:
-                    completed.add(m_id)
+                    completed.add(iid)
                     consecutive_errors = 0
                 else:
                     consecutive_errors += 1
                     if consecutive_errors >= ABORT_AFTER:
-                        print("Too many consecutive errors, aborting.", flush=True)
+                        print(f"[{kind}] 连续失败过多，中止。", flush=True)
                         abort_flag.set()
                         break
 
                 done_this_run += 1
                 if done_this_run % SAVE_EVERY == 0:
-                    with open(STATE_FILE, "w", encoding="utf-8") as sf:
-                        json.dump(list(completed), sf)
-                    print(f"Progress: +{done_this_run}, total done {len(completed)}", flush=True)
+                    with open(state_file, "w", encoding="utf-8") as sf:
+                        json.dump(sorted(completed), sf)
+                    print(f"[{kind}] 进度 +{done_this_run}，累计 {len(completed)}", flush=True)
 
-    with open(STATE_FILE, "w", encoding="utf-8") as sf:
-        json.dump(list(completed), sf)
-    print(f"Finished. +{done_this_run} this run, total done {len(completed)}", flush=True)
+    with open(state_file, "w", encoding="utf-8") as sf:
+        json.dump(sorted(completed), sf)
+    print(f"[{kind}] 完成。本轮 +{done_this_run}，累计 {len(completed)}", flush=True)
+
+
+def main():
+    only = os.environ.get("MS_TEXT_SECTIONS", "")
+    # 默认不含 studios：其 comments/list 接口对匿名和登录态均 403（只能取汇总）
+    kinds = ([k.strip() for k in only.split(",") if k.strip()] if only
+             else ["models", "skills", "mcp", "datasets"])
+    for kind in kinds:
+        if abort_flag.is_set():
+            break
+        crawl_section(kind, SECTIONS[kind])
     if abort_flag.is_set():
         sys.exit(3)
 

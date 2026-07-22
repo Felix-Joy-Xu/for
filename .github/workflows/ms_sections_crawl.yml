@@ -1,0 +1,104 @@
+name: 魔搭各板块评论采集
+
+# 每天 UTC 19:37（北京时间 03:37）自动运行，也可手动触发。
+# 采集 skills / mcp / datasets / studios 四板块的评论汇总，
+# 并对其中有互动的目标抓取正文+回复（studios 列表接口 403，仅汇总）。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 19 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-sections:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 恢复爬取进度缓存
+        uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: ms-sections-${{ github.run_id }}
+          restore-keys: |
+            ms-sections-
+            ms-texts-
+            ms-comments-
+          save-always: true
+
+      - name: 首次运行解包种子数据
+        run: |
+          if [ ! -f modelscope_output/skills_all.json ]; then
+            tar -xzf seed/modelscope_sections_seed.tar.gz
+            echo "sections seed extracted"
+          else
+            echo "cache hit, skip seed"
+          fi
+          ls modelscope_output/ | head -20
+
+      - name: 四板块评论汇总（断点续爬）
+        run: python crawl_ms_comments_multi.py
+
+      - name: 活跃目标正文采集（断点续爬）
+        run: MS_TEXT_SECTIONS=skills,mcp,datasets python crawl_ms_comment_texts.py
+
+      - name: 上传数据产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-sections-run${{ github.run_number }}
+          path: |
+            modelscope_output/ms_comments_skills.jsonl
+            modelscope_output/ms_comments_mcp.jsonl
+            modelscope_output/ms_comments_datasets.jsonl
+            modelscope_output/ms_comments_studios.jsonl
+            modelscope_output/ms_comment_texts_skills.jsonl
+            modelscope_output/ms_comment_texts_mcp.jsonl
+            modelscope_output/ms_comment_texts_datasets.jsonl
+            modelscope_output/state_ms_comments_skills.json
+            modelscope_output/state_ms_comments_mcp.json
+            modelscope_output/state_ms_comments_datasets.json
+            modelscope_output/state_ms_comments_studios.json
+            modelscope_output/state_ms_comment_texts_skills.json
+            modelscope_output/state_ms_comment_texts_mcp.json
+            modelscope_output/state_ms_comment_texts_datasets.json
+          retention-days: 30
+
+      - name: 生成并回写进度文件
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, os, datetime
+          base = "modelscope_output"
+          prog = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          for kind in ["skills", "mcp", "datasets", "studios"]:
+              done = 0
+              try:
+                  with open(os.path.join(base, f"state_ms_comments_{kind}.json"), encoding="utf-8") as f:
+                      done = len(json.load(f))
+              except Exception:
+                  pass
+              prog[kind] = done
+          with open("progress_sections.json", "w", encoding="utf-8") as f:
+              json.dump(prog, f, ensure_ascii=False, indent=1)
+          print(prog)
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add progress_sections.json
+          git diff --cached --quiet || git commit -m "data: 各板块评论进度 $(date -u '+%F %H:%M')"
+          git pull --rebase origin main || true
+          git push || echo "::warning::progress_sections.json 推送失败，下次运行会重试"
