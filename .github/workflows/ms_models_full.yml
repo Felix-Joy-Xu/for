@@ -34,7 +34,6 @@ jobs:
           key: ms-models-${{ github.run_id }}
           restore-keys: |
             ms-models-
-            ms-comments-
           save-always: true
 
       - name: 运行全量清单爬虫（断点续爬）

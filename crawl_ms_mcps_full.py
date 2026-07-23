@@ -12,6 +12,8 @@
 
 输出: modelscope_output/mcp_full.jsonl / mcp_full.json
 环境变量 MS_MCP_MAX_PAGES=N 限制本轮页数（调试用）。
+环境变量 MS_MCP_BUDGET_MIN=N 本轮时间预算（分钟，默认 45）。预算用尽时
+  主动保存断点并正常退出，保证 job 成功结束、缓存得以保存，下轮续爬。
 """
 import asyncio
 import json
@@ -31,6 +33,13 @@ STATE_FILE = OUT_DIR / "state_ms_mcp_full.json"
 PAGE_SIZE = 30
 DELAY = 0.3
 MAX_PAGES = int(os.environ.get("MS_MCP_MAX_PAGES", "0") or 0)
+BUDGET_MIN = int(os.environ.get("MS_MCP_BUDGET_MIN", "45") or 0)
+START_TS = time.time()
+
+
+def time_up():
+    """时间预算是否用尽。预算到点主动收尾，避免 job 超时取消导致缓存丢失。"""
+    return BUDGET_MIN > 0 and (time.time() - START_TS) > BUDGET_MIN * 60
 
 FETCH_JS = """
 async (pn) => {
@@ -94,6 +103,9 @@ async def main():
             for pn in range(1, pages + 1):
                 if pn in done_pages:
                     continue
+                if time_up():
+                    print(f"时间预算 {BUDGET_MIN} 分钟用尽，主动收尾保存断点。", flush=True)
+                    break
                 d, ok = await fetch_page(page, pn)
                 if not ok:
                     consecutive_errors += 1

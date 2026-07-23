@@ -19,6 +19,9 @@
 环境变量：
 - MS_FULL_SECTIONS=datasets,skills,studios 限定本轮板块（默认全部）
 - MS_FULL_MAX_TERMS=N 限制每个板块本轮处理的叶子词数量（调试用）
+- MS_FULL_BUDGET_MIN=N 本轮时间预算（分钟，默认 225）。预算用尽时主动
+  保存断点并正常退出——与 MCP 爬虫共享 300 分钟 job 超时，给 Playwright
+  安装与 MCP 采集留出余量，同时保证 job 成功结束、缓存得以保存。
 """
 import json
 import os
@@ -58,6 +61,13 @@ MAX_DEPTH = 6
 MAX_TERMS = int(os.environ.get("MS_FULL_MAX_TERMS", "0") or 0)
 ONLY = [s.strip() for s in os.environ.get(
     "MS_FULL_SECTIONS", "datasets,skills,studios").split(",") if s.strip()]
+BUDGET_MIN = int(os.environ.get("MS_FULL_BUDGET_MIN", "225") or 0)
+START_TS = time.time()
+
+
+def time_up():
+    """时间预算是否用尽。预算到点主动收尾，避免 job 超时取消导致缓存丢失。"""
+    return BUDGET_MIN > 0 and (time.time() - START_TS) > BUDGET_MIN * 60
 
 
 def total_from(d):
@@ -108,6 +118,9 @@ def crawl_term(kind, cfg, term, total, out_f):
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     written = 0
     for p in range(1, pages + 1):
+        if time_up():
+            print(f"  [{kind}/{term}] 时间预算用尽，中止该词（已写 {written}）", flush=True)
+            return written, False
         d, ok = get_page(cfg["api"], term, p, PAGE_SIZE)
         if not ok:
             return written, False
@@ -146,6 +159,9 @@ def crawl_section(kind):
 
     with open(out_jsonl, "a", encoding="utf-8") as out_f:
         while queue:
+            if time_up():
+                print(f"[{kind}] 时间预算 {BUDGET_MIN} 分钟用尽，主动收尾保存断点。", flush=True)
+                break
             term = queue.pop(0)
             total = total_of(cfg["api"], term)
             if total is None:
@@ -229,6 +245,9 @@ def main():
         if kind not in SECTIONS:
             print(f"未知板块 {kind}，跳过（可选：{list(SECTIONS)}）", flush=True)
             continue
+        if time_up():
+            print(f"时间预算用尽，{kind} 板块留待下轮续爬。", flush=True)
+            break
         print(f"########## 板块 {kind} ##########", flush=True)
         if not crawl_section(kind):
             ok_all = False

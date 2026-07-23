@@ -14,6 +14,9 @@
 状态: modelscope_output/state_ms_models_full.json（已完成的词，断点续爬）
 
 环境变量 MS_FULL_MAX_TERMS=N 限制本轮处理的叶子词数量（调试用）。
+环境变量 MS_FULL_BUDGET_MIN=N 本轮时间预算（分钟，默认 270）。
+  预算用尽时主动保存断点并正常退出——配合 Actions 300 分钟超时，
+  让 job 成功结束，缓存/产物/进度提交得以落地，下轮真正断点续爬。
 """
 import json
 import os
@@ -36,6 +39,13 @@ DELAY = 0.15
 ABORT_AFTER = 50
 MAX_DEPTH = 6
 MAX_TERMS = int(os.environ.get("MS_FULL_MAX_TERMS", "0") or 0)
+BUDGET_MIN = int(os.environ.get("MS_FULL_BUDGET_MIN", "270") or 0)
+START_TS = time.time()
+
+
+def time_up():
+    """时间预算是否用尽。预算到点主动收尾，避免 job 超时取消导致缓存丢失。"""
+    return BUDGET_MIN > 0 and (time.time() - START_TS) > BUDGET_MIN * 60
 
 
 def get_page(term, page_number, page_size, retries=4):
@@ -81,6 +91,9 @@ def crawl_term(term, total, out_f):
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     written = 0
     for p in range(1, pages + 1):
+        if time_up():
+            print(f"  [{term}] 时间预算用尽，中止该词（已写 {written}）", flush=True)
+            return written, False
         d, ok = get_page(term, p, PAGE_SIZE)
         if not ok:
             return written, False
@@ -100,6 +113,7 @@ def crawl_term(term, total, out_f):
 
 
 def main():
+    OUTPUT_JSONL.parent.mkdir(exist_ok=True)
     done_terms = set()
     if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -114,6 +128,9 @@ def main():
 
     with open(OUTPUT_JSONL, "a", encoding="utf-8") as out_f:
         while queue:
+            if time_up():
+                print(f"时间预算 {BUDGET_MIN} 分钟用尽，主动收尾保存断点。", flush=True)
+                break
             term = queue.pop(0)
             total = total_of(term)
             if total is None:
