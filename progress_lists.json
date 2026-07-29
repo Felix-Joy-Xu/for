@@ -1,5 +1,5 @@
 {
- "updatedAt": "2026-07-29T06:12:53.900128+00:00",
+ "updatedAt": "2026-07-29T10:11:06.967283+00:00",
  "siteTotals": {
   "datasets": 38356,
   "skills": 76173,
@@ -8,8 +8,8 @@
  },
  "sections": {
   "datasets": {
-   "collected": 12546,
-   "termsCompleted": 1270
+   "collected": 12533,
+   "termsCompleted": 1218
   },
   "skills": {
    "collected": 0,
