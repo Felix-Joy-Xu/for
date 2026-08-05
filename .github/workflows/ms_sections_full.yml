@@ -37,16 +37,24 @@ jobs:
             ms-seclists-
           save-always: true
 
-      - name: 运行三板块全量清单爬虫（断点续爬）
-        run: python crawl_ms_full_lists.py
+      - name: 运行三板块全量清单爬虫（断点续爬）+ 实时进度监控
+        run: |
+          python crawl_ms_full_lists.py &
+          CRAWLER_PID=$!
+          python watch_commit.py $CRAWLER_PID 1800 || true
+          wait $CRAWLER_PID
 
       - name: 安装 Playwright（MCP 清单需要过 WAF）
         run: |
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: 运行 MCP 全量清单爬虫（断点续爬）
-        run: python crawl_ms_mcps_full.py
+      - name: 运行 MCP 全量清单爬虫（断点续爬）+ 实时进度监控
+        run: |
+          python crawl_ms_mcps_full.py &
+          CRAWLER_PID=$!
+          python watch_commit.py $CRAWLER_PID 1800 || true
+          wait $CRAWLER_PID
 
       - name: 上传数据产物
         if: always()

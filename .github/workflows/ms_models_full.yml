@@ -36,8 +36,12 @@ jobs:
             ms-models-
           save-always: true
 
-      - name: 运行全量清单爬虫（断点续爬）
-        run: python crawl_ms_models_full.py
+      - name: 运行全量清单爬虫（断点续爬）+ 实时进度监控
+        run: |
+          python crawl_ms_models_full.py &
+          CRAWLER_PID=$!
+          python watch_commit.py $CRAWLER_PID 1800 || true
+          wait $CRAWLER_PID
 
       - name: 上传数据产物
         if: always()
