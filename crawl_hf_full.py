@@ -21,6 +21,7 @@ HuggingFace 全量清单采集（models / datasets / spaces）
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -33,8 +34,9 @@ import requests
 # 配置
 # ============================================================================
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / "modelscope_output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+# 输出目录：默认魔搭目录；可通过 --out-dir 指定独立 HF 目录（不与魔搭数据混放）
+OUTPUT_DIR = Path(os.environ.get("HF_OUTPUT_DIR", BASE_DIR / "modelscope_output"))
+OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
 HF_ORIGIN = "https://hf-mirror.com"
 HEADERS = {
@@ -285,7 +287,13 @@ def main():
     )
     parser.add_argument("--limit", type=int, default=1000, help="每页条数（默认 1000）")
     parser.add_argument("--max-items", type=int, default=None, help="最多采集条数（调试用）")
+    parser.add_argument("--out-dir", type=str, default=None, help="输出目录（默认 HF_OUTPUT_DIR 环境变量或 modelscope_output）")
     args = parser.parse_args()
+
+    if args.out_dir:
+        global OUTPUT_DIR
+        OUTPUT_DIR = Path(args.out_dir)
+        OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
     resources = ["models", "datasets", "spaces"] if args.resource == "all" else [args.resource]
     for res in resources:
