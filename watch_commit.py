@@ -152,7 +152,7 @@ def main():
 
     while True:
         time.sleep(interval)
-        if not process_alive(crawler_pid):
+        if crawler_pid > 0 and not process_alive(crawler_pid):
             log("爬虫进程已结束，退出监控")
             break
         build_progress()
