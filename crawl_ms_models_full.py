@@ -167,12 +167,46 @@ def write_batch(term, items, out_f):
     return len(items)
 
 
+def rebuild_state_from_jsonl():
+    """从 jsonl 的 _search_term 重建完成词集合。
+    修复：旧版把细分父词也加入 done_terms，导致断点续爬时父词被跳过、
+    子词永久丢失。jsonl 中每行都带 _search_term，只有真正爬过数据的词
+    才算完成。返回 (完成词集合, 是否发生了修复)。
+    """
+    done = set()
+    if not OUTPUT_JSONL.exists():
+        return done, False
+    with open(OUTPUT_JSONL, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                it = json.loads(line)
+            except Exception:
+                continue
+            t = it.get("_search_term")
+            if t:
+                done.add(t)
+    return done, True
+
+
 def main():
     OUTPUT_JSONL.parent.mkdir(exist_ok=True)
     done_terms = set()
     if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             done_terms = set(json.load(f))
+
+    # state 自愈：从 jsonl 重建（旧 state 可能含被误标完成的父词）
+    rebuilt, rebuilt_flag = rebuild_state_from_jsonl()
+    if rebuilt_flag and rebuilt:
+        stale = done_terms - rebuilt
+        if stale:
+            print(f"state 自愈: 移除 {len(stale)} 个未真正爬取的词（父词误标），保留 {len(rebuilt)} 个", flush=True)
+            done_terms = rebuilt
+            with open(STATE_FILE, "w", encoding="utf-8") as sf:
+                json.dump(sorted(done_terms), sf)
 
     queue = [c for c in ALPHABET if c not in done_terms]
     print(f"待探测词 {len(queue)}，已完成词 {len(done_terms)}，并发 {WORKERS}", flush=True)
@@ -226,7 +260,8 @@ def main():
                             children = [term + c for c in ALPHABET if term + c not in done_terms]
                             with write_lock:
                                 queue = children + queue
-                                done_terms.add(term)
+                                # 注意：父词不加入 done_terms！否则断点后父词被跳过，
+                                # 未处理完的子词会永久丢失。父词下轮重新探测（成本仅 1 次计数请求）。
                             print(f"[{term}] total={total} > {WINDOW}，细分为 {len(children)} 个子词", flush=True)
                         with write_lock:
                             terms_done_this_run += 1
