@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   crawl-sections-full:
@@ -114,3 +115,35 @@ jobs:
           git diff --cached --quiet || git commit -m "data: 三板块全量清单进度 $(date -u '+%F %H:%M')"
           git pull --rebase origin main || true
           git push || echo "::warning::progress_lists.json 推送失败，下次运行会重试"
+
+      - name: 自动续跑（未爬满则触发下一轮）
+        if: always() && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 四个板块任一未满则触发下一轮（连续爬取不停）
+          REMAINING=$(python -c "
+import json
+try:
+    p = json.load(open('progress_lists.json'))
+    site = p.get('siteTotals', {})
+    sec = p.get('sections', {})
+    rem = 0
+    for k, s in site.items():
+        got = sec.get(k, {}).get('collected', 0)
+        rem += max(0, s - got)
+    print(rem)
+except Exception:
+    print(1)
+")
+          echo "剩余待爬: $REMAINING"
+          if [ "$REMAINING" -gt 0 ]; then
+            sleep 60
+            curl -s -X POST \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ms_sections_full.yml/dispatches" \
+              -d '{"ref":"main"}' && echo "已自动触发下一轮爬取" || echo "::warning::自动续跑触发失败"
+          else
+            echo "各板块已全部爬满，停止自动续跑"
+          fi
