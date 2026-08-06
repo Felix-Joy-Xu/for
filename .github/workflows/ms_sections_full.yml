@@ -121,21 +121,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 四个板块任一未满则触发下一轮（连续爬取不停）
-          REMAINING=$(python -c "
-import json
-try:
-    p = json.load(open('progress_lists.json'))
-    site = p.get('siteTotals', {})
-    sec = p.get('sections', {})
-    rem = 0
-    for k, s in site.items():
-        got = sec.get(k, {}).get('collected', 0)
-        rem += max(0, s - got)
-    print(rem)
-except Exception:
-    print(1)
-")
+          REMAINING=$(python -c "import json;p=json.load(open('progress_lists.json'));s=p.get('siteTotals',{});print(sum(max(0,s[k]-p.get('sections',{}).get(k,{}).get('collected',0)) for k in s))")
           echo "剩余待爬: $REMAINING"
           if [ "$REMAINING" -gt 0 ]; then
             sleep 60
