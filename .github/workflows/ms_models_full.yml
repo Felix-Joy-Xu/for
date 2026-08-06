@@ -37,6 +37,9 @@ jobs:
           save-always: true
 
       - name: 运行全量清单爬虫（断点续爬）+ 实时进度监控
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python crawl_ms_models_full.py &
           CRAWLER_PID=$!

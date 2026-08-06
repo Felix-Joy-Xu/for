@@ -38,6 +38,9 @@ jobs:
           save-always: true
 
       - name: 运行三板块全量清单爬虫（断点续爬）+ 实时进度监控
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python crawl_ms_full_lists.py &
           CRAWLER_PID=$!
@@ -50,6 +53,9 @@ jobs:
           playwright install --with-deps chromium
 
       - name: 运行 MCP 全量清单爬虫（断点续爬）+ 实时进度监控
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python crawl_ms_mcps_full.py &
           CRAWLER_PID=$!

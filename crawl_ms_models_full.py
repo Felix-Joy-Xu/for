@@ -100,7 +100,7 @@ def total_of(term):
 
 def fetch_term(term):
     """处理一个词：先计数；total≤3000 则翻页取完，返回 (term, items, total, ok, need_split)。
-    need_split=True 表示 total>3000，需要调用方细分。"""
+    need_split=True 表示 total>3000，需要调用方细分（此时 items 为空）。"""
     # 1. 计数（ps1）
     d0, ok0 = get_page(term, 1, 1)
     if not ok0:
@@ -129,6 +129,30 @@ def fetch_term(term):
         time.sleep(DELAY)
 
     return term, items, total, True, False
+
+
+def fetch_term_best_effort(term):
+    """对超窗口且达最大深度的词，尽力翻页取到 3000 上限。
+    返回 (term, items, total, ok)。"""
+    items = []
+    total = 0
+    # ps=50, 翻到窗口上限 60 页（3000 条）
+    for p in range(1, (WINDOW // PAGE_SIZE) + 1):
+        if time_up():
+            break
+        d, ok = get_page(term, p, PAGE_SIZE)
+        if not ok:
+            break
+        if d.get("_quota"):
+            break
+        batch = d.get("models") or []
+        items.extend(batch)
+        if len(batch) < PAGE_SIZE:
+            break
+        time.sleep(DELAY)
+    if not items:
+        return term, [], 0, False
+    return term, items, len(items), True
 
 
 def write_batch(term, items, out_f):
@@ -193,8 +217,10 @@ def main():
                     if need_split:
                         # total > WINDOW，细分入队
                         if len(term) >= MAX_DEPTH:
-                            print(f"[{term}] 超窗口且达最大深度，尽力写入 {len(items)} 条", flush=True)
-                            n = write_batch(term, items, out_f)
+                            # 已达最大深度：尽力翻页取到 3000 上限
+                            print(f"[{term}] 超窗口且达最大深度，尽力翻页取数", flush=True)
+                            be_term, be_items, be_total, be_ok = fetch_term_best_effort(term)
+                            n = write_batch(be_term, be_items, out_f)
                             models_written += n
                         else:
                             children = [term + c for c in ALPHABET if term + c not in done_terms]
