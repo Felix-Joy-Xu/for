@@ -118,19 +118,25 @@ jobs:
           git push origin main || echo "::warning::progress_lists.json 推送失败，下次运行会重试"
 
       - name: 自动续跑（未爬满则触发下一轮）
-        if: always() && !cancelled()
+        if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REMAINING=$(python -c "import json;p=json.load(open('progress_lists.json'));s=p.get('siteTotals',{});print(sum(max(0,s[k]-p.get('sections',{}).get(k,{}).get('collected',0)) for k in s))")
+          REMAINING=$(python -c "import json;p=json.load(open('progress_lists.json'));s=p.get('siteTotals',{});print(sum(max(0,s[k]-p.get('sections',{}).get(k,{}).get('collected',0)) for k in s))" 2>/dev/null || echo 1)
           echo "剩余待爬: $REMAINING"
           if [ "$REMAINING" -gt 0 ]; then
             sleep 60
-            curl -s -X POST \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ms_sections_full.yml/dispatches" \
-              -d '{"ref":"main"}' && echo "已自动触发下一轮爬取" || echo "::warning::自动续跑触发失败"
+            ACTIVE=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=5&status=in_progress" | python -c "import json,sys;d=json.load(sys.stdin);print(sum(1 for r in d.get('workflow_runs',[]) if '魔搭全量板块清单' in r.get('name','')))" 2>/dev/null || echo 0)
+            if [ "$ACTIVE" -gt 0 ]; then
+              echo "已有进行中的同 workflow run，跳过续跑"
+            else
+              curl -s -X POST \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ms_sections_full.yml/dispatches" \
+                -d '{"ref":"main"}' && echo "已自动触发下一轮爬取" || echo "::warning::自动续跑触发失败"
+            fi
           else
             echo "各板块已全部爬满，停止自动续跑"
           fi

@@ -132,6 +132,24 @@ def git_commit_push():
     run_git(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
     run_git(["git", "add", "progress.json", "progress_models.json", "progress_lists.json",
              "progress_sections.json", "progress_texts.json"])
+    # 数据分片 + 断点状态也提交（借鉴 crawler 仓库：数据/状态进仓库，不依赖 cache）
+    run_git(["git", "add", "modelscope_output/models_full.jsonl",
+             "modelscope_output/models_full_part*.jsonl",
+             "modelscope_output/state_ms_models_full.json",
+             "modelscope_output/datasets_full.jsonl",
+             "modelscope_output/datasets_full_part*.jsonl",
+             "modelscope_output/state_ms_datasets_full.json",
+             "modelscope_output/skills_full.jsonl",
+             "modelscope_output/skills_full_part*.jsonl",
+             "modelscope_output/state_ms_skills_full.json",
+             "modelscope_output/studios_full.jsonl",
+             "modelscope_output/studios_full_part*.jsonl",
+             "modelscope_output/state_ms_studios_full.json",
+             "modelscope_output/mcp_full.jsonl",
+             "modelscope_output/mcp_full_part*.jsonl",
+             "modelscope_output/state_ms_mcp_full.json"])
+    # git add 的 glob 只在匹配时生效；确认至少加了进度文件
+    rc, so, se = run_git(["git", "add", "-f", "progress_models.json", "progress_lists.json"])
 
     # 有变更才 commit
     rc, so, se = run_git(["git", "diff", "--cached", "--quiet"])

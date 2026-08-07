@@ -55,7 +55,7 @@ jobs:
         with:
           name: ms-models-full-run${{ github.run_number }}
           path: |
-            modelscope_output/models_full.jsonl
+            modelscope_output/models_full*.jsonl
             modelscope_output/models_full.json
             modelscope_output/state_ms_models_full.json
           retention-days: 30
@@ -98,20 +98,27 @@ jobs:
           git push origin main || echo "::warning::progress_models.json 推送失败，下次运行会重试"
 
       - name: 自动续跑（未爬满则触发下一轮）
-        if: always() && !cancelled()
+        if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DONE=$(python -c "import json;print(json.load(open('progress_models.json')).get('models',0))")
-          TARGET=$(python -c "import json;print(json.load(open('progress_models.json')).get('siteTotal',226815))")
+          DONE=$(python -c "import json;print(json.load(open('progress_models.json')).get('models',0))" 2>/dev/null || echo 0)
+          TARGET=$(python -c "import json;print(json.load(open('progress_models.json')).get('siteTotal',226815))" 2>/dev/null || echo 226815)
           echo "当前进度: $DONE / $TARGET"
           if [ "$DONE" -lt "$TARGET" ]; then
+            # 防抖：若 5 分钟内已有同 workflow 的 in_progress run 则不重复触发
             sleep 60
-            curl -s -X POST \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ms_models_full.yml/dispatches" \
-              -d '{"ref":"main"}' && echo "已自动触发下一轮爬取" || echo "::warning::自动续跑触发失败"
+            ACTIVE=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=5&status=in_progress" | python -c "import json,sys;d=json.load(sys.stdin);print(sum(1 for r in d.get('workflow_runs',[]) if '魔搭全量模型清单' in r.get('name','')))" 2>/dev/null || echo 0)
+            if [ "$ACTIVE" -gt 0 ]; then
+              echo "已有进行中的同 workflow run，跳过续跑"
+            else
+              curl -s -X POST \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ms_models_full.yml/dispatches" \
+                -d '{"ref":"main"}' && echo "已自动触发下一轮爬取" || echo "::warning::自动续跑触发失败"
+            fi
           else
             echo "已爬满全部模型，停止自动续跑"
           fi

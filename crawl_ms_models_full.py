@@ -34,9 +34,13 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_JSONL = BASE_DIR / "modelscope_output" / "models_full.jsonl"
-OUTPUT_JSON = BASE_DIR / "modelscope_output" / "models_full.json"
-STATE_FILE = BASE_DIR / "modelscope_output" / "state_ms_models_full.json"
+OUT_DIR = BASE_DIR / "modelscope_output"
+OUTPUT_JSONL = OUT_DIR / "models_full.jsonl"          # 分片基准名（实际写 models_full_partN.jsonl）
+OUTPUT_JSON = OUT_DIR / "models_full.json"
+STATE_FILE = OUT_DIR / "state_ms_models_full.json"
+
+# 分片大小（<100MB GitHub 单文件限制；crawler 仓库同样用 50MB）
+PART_MAX_SIZE = 50 * 1024 * 1024
 
 API = "https://modelscope.cn/openapi/v1/models"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -155,15 +159,65 @@ def fetch_term_best_effort(term):
     return term, items, len(items), True
 
 
-def write_batch(term, items, out_f):
-    """写入一批结果（加锁）"""
+def get_active_part_path(base_path, max_size=PART_MAX_SIZE):
+    """获取当前活跃的分片文件路径（借鉴 crawler 仓库）。
+    - 无分片时返回原文件；原文件超限则重命名为 part1 并返回 part2。
+    - 有分片时返回最后一个未超限的分片。
+    """
+    base, ext = os.path.splitext(base_path)
+    part_num = 1
+    while True:
+        part_path = f"{base}_part{part_num}{ext}"
+        if not os.path.exists(part_path):
+            break
+        part_num += 1
+
+    if part_num == 1:
+        if os.path.exists(base_path):
+            if os.path.getsize(base_path) >= max_size:
+                part1_path = f"{base}_part1{ext}"
+                try:
+                    os.rename(base_path, part1_path)
+                    print(f"[分片] 原文件超限，重命名为: {part1_path}", flush=True)
+                    return f"{base}_part2{ext}"
+                except Exception as e:
+                    print(f"[分片] 重命名失败: {e}", flush=True)
+                    return part1_path
+            return base_path
+        return base_path
+    else:
+        latest_part_path = f"{base}_part{part_num - 1}{ext}"
+        if os.path.getsize(latest_part_path) >= max_size:
+            return f"{base}_part{part_num}{ext}"
+        return latest_part_path
+
+
+def all_jsonl_parts(base_path):
+    """返回所有分片 + 原文件的路径列表（按顺序）"""
+    base, ext = os.path.splitext(base_path)
+    paths = []
+    if os.path.exists(base_path):
+        paths.append(base_path)
+    part_num = 1
+    while True:
+        part_path = f"{base}_part{part_num}{ext}"
+        if not os.path.exists(part_path):
+            break
+        paths.append(part_path)
+        part_num += 1
+    return paths
+
+
+def write_batch(term, items):
+    """写入一批结果（加锁 + 自动分片）。返回写入数。"""
     if not items:
         return 0
     with write_lock:
-        for it in items:
-            it["_search_term"] = term
-            out_f.write(json.dumps(it, ensure_ascii=False) + "\n")
-        out_f.flush()
+        active = get_active_part_path(str(OUTPUT_JSONL))
+        with open(active, "a", encoding="utf-8") as f:
+            for it in items:
+                it["_search_term"] = term
+                f.write(json.dumps(it, ensure_ascii=False) + "\n")
     return len(items)
 
 
@@ -174,20 +228,22 @@ def rebuild_state_from_jsonl():
     才算完成。返回 (完成词集合, 是否发生了修复)。
     """
     done = set()
-    if not OUTPUT_JSONL.exists():
+    parts = all_jsonl_parts(str(OUTPUT_JSONL))
+    if not parts:
         return done, False
-    with open(OUTPUT_JSONL, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                it = json.loads(line)
-            except Exception:
-                continue
-            t = it.get("_search_term")
-            if t:
-                done.add(t)
+    for part in parts:
+        with open(part, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    it = json.loads(line)
+                except Exception:
+                    continue
+                t = it.get("_search_term")
+                if t:
+                    done.add(t)
     return done, True
 
 
@@ -215,97 +271,96 @@ def main():
     terms_done_this_run = 0
     models_written = 0
 
-    with open(OUTPUT_JSONL, "a", encoding="utf-8") as out_f:
-        while queue:
-            if time_up():
-                print(f"时间预算 {BUDGET_MIN} 分钟用尽，主动收尾保存断点。", flush=True)
-                break
+    while queue:
+        if time_up():
+            print(f"时间预算 {BUDGET_MIN} 分钟用尽，主动收尾保存断点。", flush=True)
+            break
 
-            # 取一批词并行处理
-            batch_terms = []
-            while queue and len(batch_terms) < WORKERS * 2:
-                t = queue.pop(0)
-                if t not in done_terms:
-                    batch_terms.append(t)
+        # 取一批词并行处理
+        batch_terms = []
+        while queue and len(batch_terms) < WORKERS * 2:
+            t = queue.pop(0)
+            if t not in done_terms:
+                batch_terms.append(t)
 
-            if not batch_terms:
-                break
+        if not batch_terms:
+            break
 
-            futures = {}
-            with ThreadPoolExecutor(max_workers=WORKERS) as executor:
-                for t in batch_terms:
-                    futures[executor.submit(fetch_term, t)] = t
+        futures = {}
+        with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+            for t in batch_terms:
+                futures[executor.submit(fetch_term, t)] = t
 
-                for fut in as_completed(futures):
-                    if time_up():
-                        break
-                    t = futures[fut]
-                    try:
-                        term, items, total, ok, need_split = fut.result()
-                    except Exception as e:
-                        print(f"[{t}] 异常: {str(e)[:80]}", flush=True)
-                        ok = False
-                        need_split = False
-                        items = []
+            for fut in as_completed(futures):
+                if time_up():
+                    break
+                t = futures[fut]
+                try:
+                    term, items, total, ok, need_split = fut.result()
+                except Exception as e:
+                    print(f"[{t}] 异常: {str(e)[:80]}", flush=True)
+                    ok = False
+                    need_split = False
+                    items = []
 
-                    if need_split:
-                        # total > WINDOW，细分入队
-                        if len(term) >= MAX_DEPTH:
-                            # 已达最大深度：尽力翻页取到 3000 上限
-                            print(f"[{term}] 超窗口且达最大深度，尽力翻页取数", flush=True)
-                            be_term, be_items, be_total, be_ok = fetch_term_best_effort(term)
-                            n = write_batch(be_term, be_items, out_f)
-                            models_written += n
-                        else:
-                            children = [term + c for c in ALPHABET if term + c not in done_terms]
-                            with write_lock:
-                                queue = children + queue
-                                # 注意：父词不加入 done_terms！否则断点后父词被跳过，
-                                # 未处理完的子词会永久丢失。父词下轮重新探测（成本仅 1 次计数请求）。
-                            print(f"[{term}] total={total} > {WINDOW}，细分为 {len(children)} 个子词", flush=True)
+                if need_split:
+                    # total > WINDOW，细分入队
+                    if len(term) >= MAX_DEPTH:
+                        # 已达最大深度：尽力翻页取到 3000 上限
+                        print(f"[{term}] 超窗口且达最大深度，尽力翻页取数", flush=True)
+                        be_term, be_items, be_total, be_ok = fetch_term_best_effort(term)
+                        n = write_batch(be_term, be_items)
+                        models_written += n
+                    else:
+                        children = [term + c for c in ALPHABET if term + c not in done_terms]
                         with write_lock:
-                            terms_done_this_run += 1
-                        time.sleep(DELAY)
-                        continue
-
-                    if not ok:
-                        consecutive_errors += 1
-                        print(f"[{t}] 失败（连续 {consecutive_errors}）", flush=True)
-                        with write_lock:
-                            queue.append(t)
-                        if consecutive_errors >= ABORT_AFTER:
-                            print("连续失败过多，中止。", flush=True)
-                            sys.exit(3)
-                        time.sleep(3)
-                        continue
-
-                    consecutive_errors = 0
-                    n = write_batch(term, items, out_f)
-                    models_written += n
+                            queue = children + queue
+                            # 注意：父词不加入 done_terms！否则断点后父词被跳过，
+                            # 未处理完的子词会永久丢失。父词下轮重新探测（成本仅 1 次计数请求）。
+                        print(f"[{term}] total={total} > {WINDOW}，细分为 {len(children)} 个子词", flush=True)
                     with write_lock:
-                        done_terms.add(term)
                         terms_done_this_run += 1
-
-                    if terms_done_this_run % 100 == 0:
-                        with write_lock:
-                            with open(STATE_FILE, "w", encoding="utf-8") as sf:
-                                json.dump(sorted(done_terms), sf)
-                        print(f"=== 进度: 本轮完成 {terms_done_this_run} 词，"
-                              f"累计模型 {models_written}，队列剩 {len(queue)} ===", flush=True)
-                    if MAX_TERMS and terms_done_this_run >= MAX_TERMS:
-                        print(f"达到 MS_FULL_MAX_TERMS={MAX_TERMS}，提前结束（调试模式）", flush=True)
-                        queue.clear()
-                        break
                     time.sleep(DELAY)
+                    continue
 
-        with write_lock:
-            with open(STATE_FILE, "w", encoding="utf-8") as sf:
-                json.dump(sorted(done_terms), sf)
+                if not ok:
+                    consecutive_errors += 1
+                    print(f"[{t}] 失败（连续 {consecutive_errors}）", flush=True)
+                    with write_lock:
+                        queue.append(t)
+                    if consecutive_errors >= ABORT_AFTER:
+                        print("连续失败过多，中止。", flush=True)
+                        sys.exit(3)
+                    time.sleep(3)
+                    continue
 
-    # 去重合并
+                consecutive_errors = 0
+                n = write_batch(term, items)
+                models_written += n
+                with write_lock:
+                    done_terms.add(term)
+                    terms_done_this_run += 1
+
+                if terms_done_this_run % 100 == 0:
+                    with write_lock:
+                        with open(STATE_FILE, "w", encoding="utf-8") as sf:
+                            json.dump(sorted(done_terms), sf)
+                    print(f"=== 进度: 本轮完成 {terms_done_this_run} 词，"
+                          f"累计模型 {models_written}，队列剩 {len(queue)} ===", flush=True)
+                if MAX_TERMS and terms_done_this_run >= MAX_TERMS:
+                    print(f"达到 MS_FULL_MAX_TERMS={MAX_TERMS}，提前结束（调试模式）", flush=True)
+                    queue.clear()
+                    break
+                time.sleep(DELAY)
+
+    with write_lock:
+        with open(STATE_FILE, "w", encoding="utf-8") as sf:
+            json.dump(sorted(done_terms), sf)
+
+    # 去重合并（读全部分片）
     models = {}
-    if OUTPUT_JSONL.exists():
-        with open(OUTPUT_JSONL, "r", encoding="utf-8") as f:
+    for part in all_jsonl_parts(str(OUTPUT_JSONL)):
+        with open(part, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
