@@ -43,12 +43,28 @@ def build_progress():
     """生成各进度文件（与 workflow 末尾逻辑一致）"""
     now = datetime.now(timezone.utc).isoformat()
 
-    # progress_models.json
+    # progress_models.json（运行时读 jsonl 行数，结束时 json 更准）
     try:
         state = load_json(os.path.join(OUT_DIR, "state_ms_models_full.json")) or []
-        models = load_json(os.path.join(OUT_DIR, "models_full.json"))
+        # 运行中 jsonl 实时增长；json 只在结束时写入
+        jsonl_path = os.path.join(OUT_DIR, "models_full.jsonl")
+        json_path = os.path.join(OUT_DIR, "models_full.json")
+        models = 0
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, encoding="utf-8") as f:
+                    models = len(json.load(f))
+            except Exception:
+                models = 0
+        if models == 0 and os.path.exists(jsonl_path):
+            # 退化为 jsonl 行数（运行中实时进度）
+            try:
+                with open(jsonl_path, encoding="utf-8") as f:
+                    models = sum(1 for _ in f)
+            except Exception:
+                models = 0
         prog = {
-            "models": len(models) if models else 0,
+            "models": models,
             "termsCompleted": len(state),
             "siteTotal": SITE_TOTALS["models"],
             "updatedAt": now,
@@ -66,9 +82,25 @@ def build_progress():
             st = load_json(os.path.join(OUT_DIR, f"state_ms_{kind}_full.json"))
             if st:
                 terms = len(st)
-            items = load_json(os.path.join(OUT_DIR, f"{kind}_full.json"))
+            # 运行中读 jsonl，结束时读 json
+            collected = 0
+            jp = os.path.join(OUT_DIR, f"{kind}_full.json")
+            if os.path.exists(jp):
+                try:
+                    with open(jp, encoding="utf-8") as f:
+                        collected = len(json.load(f))
+                except Exception:
+                    collected = 0
+            if collected == 0:
+                jl = os.path.join(OUT_DIR, f"{kind}_full.jsonl")
+                if os.path.exists(jl):
+                    try:
+                        with open(jl, encoding="utf-8") as f:
+                            collected = sum(1 for _ in f)
+                    except Exception:
+                        collected = 0
             prog["sections"][kind] = {
-                "collected": len(items) if items else 0,
+                "collected": collected,
                 "termsCompleted": terms,
             }
         with open(os.path.join(BASE_DIR, "progress_lists.json"), "w", encoding="utf-8") as f:
