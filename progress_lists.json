@@ -1,5 +1,5 @@
 {
- "updatedAt": "2026-08-07T01:56:07.141516+00:00",
+ "updatedAt": "2026-08-07T04:46:51.625637+00:00",
  "siteTotals": {
   "models": 226815,
   "datasets": 38356,
@@ -9,8 +9,8 @@
  },
  "sections": {
   "datasets": {
-   "collected": 0,
-   "termsCompleted": 0
+   "collected": 14846,
+   "termsCompleted": 2578
   },
   "skills": {
    "collected": 0,
@@ -21,8 +21,8 @@
    "termsCompleted": 0
   },
   "mcp": {
-   "collected": 290,
-   "termsCompleted": 0
+   "collected": 9853,
+   "termsCompleted": 1836
   }
  }
 }
