@@ -1,0 +1,113 @@
+name: 定时提交爬取进度
+
+# 每 30 分钟运行一次：从 Actions cache 读取爬虫最新进度/数据并提交到仓库。
+# 与爬虫 run 解耦，避免长 run 后台进程被清理导致进度不更新。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  commit-progress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 恢复爬虫 cache（若有）
+        uses: actions/cache/restore@v4
+        with:
+          path: modelscope_output
+          key: ms-models-bridge-${{ github.run_id }}
+          restore-keys: |
+            ms-models-
+            ms-seclists-
+
+      - name: 生成进度文件
+        run: |
+          python - <<'EOF'
+          import json, os, datetime, glob
+          base = "modelscope_output"
+          now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+          # 模型进度：读分片 jsonl 行数（运行时）或 json（结束）
+          def count_parts(kind):
+              n = 0
+              jp = os.path.join(base, f"{kind}_full.json")
+              if os.path.exists(jp):
+                  try:
+                      with open(jp, encoding="utf-8") as f:
+                          return len(json.load(f))
+                  except Exception:
+                      pass
+              for jl in glob.glob(os.path.join(base, f"{kind}_full*.jsonl")):
+                  try:
+                      with open(jl, encoding="utf-8") as f:
+                          n += sum(1 for _ in f)
+                  except Exception:
+                      pass
+              return n
+
+          prog = {
+              "models": count_parts("models"),
+              "termsCompleted": 0,
+              "siteTotal": 226815,
+              "updatedAt": now,
+          }
+          try:
+              with open(os.path.join(base, "state_ms_models_full.json"), encoding="utf-8") as f:
+                  prog["termsCompleted"] = len(json.load(f))
+          except Exception:
+              pass
+          with open("progress_models.json", "w", encoding="utf-8") as f:
+              json.dump(prog, f, ensure_ascii=False, indent=1)
+          print(json.dumps(prog, ensure_ascii=False))
+
+          site_totals = {"datasets": 38356, "skills": 76173, "studios": 13300, "mcp": 9781}
+          prog2 = {"updatedAt": now, "siteTotals": site_totals, "sections": {}}
+          for kind in ("datasets", "skills", "studios", "mcp"):
+              terms = 0
+              try:
+                  with open(os.path.join(base, f"state_ms_{kind}_full.json"), encoding="utf-8") as f:
+                      terms = len(json.load(f))
+              except Exception:
+                  pass
+              prog2["sections"][kind] = {"collected": count_parts(kind), "termsCompleted": terms}
+          with open("progress_lists.json", "w", encoding="utf-8") as f:
+              json.dump(prog2, f, ensure_ascii=False, indent=1)
+          print(json.dumps(prog2, ensure_ascii=False))
+          EOF
+
+      - name: 提交并推送进度
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add progress_models.json progress_lists.json
+          git add -f modelscope_output/models_full_part*.jsonl \
+                    modelscope_output/state_ms_models_full.json \
+                    modelscope_output/datasets_full_part*.jsonl \
+                    modelscope_output/state_ms_datasets_full.json \
+                    modelscope_output/skills_full_part*.jsonl \
+                    modelscope_output/state_ms_skills_full.json \
+                    modelscope_output/studios_full_part*.jsonl \
+                    modelscope_output/state_ms_studios_full.json \
+                    modelscope_output/mcp_full_part*.jsonl \
+                    modelscope_output/state_ms_mcp_full.json 2>/dev/null || true
+          git diff --cached --quiet && echo "无变更，跳过提交" || {
+            git commit -m "data: 定时进度 $(date -u '+%F %H:%M') [skip ci]"
+            git checkout -B main origin/main || true
+            git pull --rebase origin main || true
+            git push origin main || echo "::warning::推送失败"
+          }
