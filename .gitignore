@@ -3,11 +3,58 @@ _secrets.py
 _scrub_secrets.py
 ms_comment_api_info.json
 
-# ===== 爬取数据（体积大，不入库）=====
-modelscope_output/
-
 # ===== 运行产物 =====
 __pycache__/
 *.pyc
 *.log
 *.err
+
+# ===== modelscope_output 数据（分片数据入库，大文件忽略）=====
+# 分片 jsonl（models_full_partN.jsonl 等）和 state/progress 会提交到仓库
+# 旧的大体积完整产物不入库（避免仓库膨胀）
+modelscope_output/models_all.json
+modelscope_output/models_all.csv
+modelscope_output/datasets_all.json
+modelscope_output/datasets_all.csv
+modelscope_output/skills_all.json
+modelscope_output/skills_all.csv
+modelscope_output/studios_all.json
+modelscope_output/studios_all.csv
+modelscope_output/mcps_all.json
+modelscope_output/mcps_all.csv
+modelscope_output/ms_comments_all.jsonl
+modelscope_output/ms_comments_all.jsonl.bak
+modelscope_output/ms_comments_datasets.jsonl
+modelscope_output/ms_comments_mcp.jsonl
+modelscope_output/ms_comments_skills.jsonl
+modelscope_output/ms_comments_studios.jsonl
+modelscope_output/ms_comment_texts.jsonl
+modelscope_output/ms_comment_texts_datasets.jsonl
+modelscope_output/ms_comment_texts_mcp.jsonl
+modelscope_output/ms_comment_texts_skills.jsonl
+modelscope_output/ms_comment_texts_studios.jsonl
+modelscope_output/ms_commit_history.jsonl
+modelscope_output/ms_model_dependencies.jsonl
+modelscope_output/ms_users_profiles.jsonl
+modelscope_output/ms_leaderboards.jsonl
+modelscope_output/state_ms_comments.json
+modelscope_output/state_ms_comments.json.bak
+modelscope_output/state_ms_commits.json
+modelscope_output/state_ms_trees.json
+modelscope_output/state_ms_users.json
+modelscope_output/state_ms_comment_texts.json
+modelscope_output/state_ms_comment_texts_datasets.json
+modelscope_output/state_ms_comment_texts_mcp.json
+modelscope_output/state_ms_comment_texts_skills.json
+modelscope_output/state_ms_comment_texts_studios.json
+modelscope_output/state_ms_comments_datasets.json
+modelscope_output/state_ms_comments_mcp.json
+modelscope_output/state_ms_comments_skills.json
+modelscope_output/state_ms_comments_studios.json
+modelscope_output/models_full.jsonl
+modelscope_output/datasets_full.jsonl
+modelscope_output/skills_full.jsonl
+modelscope_output/studios_full.jsonl
+modelscope_output/mcp_full.jsonl
+modelscope_output/*.bak_bad
+modelscope_output/*.bak_old_*
