@@ -47,7 +47,8 @@ def build_progress():
     try:
         state = load_json(os.path.join(OUT_DIR, "state_ms_models_full.json")) or []
         # 运行中 jsonl 实时增长；json 只在结束时写入
-        jsonl_path = os.path.join(OUT_DIR, "models_full.jsonl")
+        import glob as _glob
+        jsonl_paths = _glob.glob(os.path.join(OUT_DIR, "models_full*.jsonl"))
         json_path = os.path.join(OUT_DIR, "models_full.json")
         models = 0
         if os.path.exists(json_path):
@@ -56,11 +57,12 @@ def build_progress():
                     models = len(json.load(f))
             except Exception:
                 models = 0
-        if models == 0 and os.path.exists(jsonl_path):
-            # 退化为 jsonl 行数（运行中实时进度）
+        if models == 0 and jsonl_paths:
+            # 退化为 jsonl 行数（运行中实时进度，含分片）
             try:
-                with open(jsonl_path, encoding="utf-8") as f:
-                    models = sum(1 for _ in f)
+                for jl in jsonl_paths:
+                    with open(jl, encoding="utf-8") as f:
+                        models += sum(1 for _ in f)
             except Exception:
                 models = 0
         prog = {
@@ -92,13 +94,13 @@ def build_progress():
                 except Exception:
                     collected = 0
             if collected == 0:
-                jl = os.path.join(OUT_DIR, f"{kind}_full.jsonl")
-                if os.path.exists(jl):
+                jls = _glob.glob(os.path.join(OUT_DIR, f"{kind}_full*.jsonl"))
+                for jl in jls:
                     try:
                         with open(jl, encoding="utf-8") as f:
-                            collected = sum(1 for _ in f)
+                            collected += sum(1 for _ in f)
                     except Exception:
-                        collected = 0
+                        pass
             prog["sections"][kind] = {
                 "collected": collected,
                 "termsCompleted": terms,
