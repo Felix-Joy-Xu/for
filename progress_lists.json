@@ -1,6 +1,7 @@
 {
- "updatedAt": "2026-08-06T16:53:30.366452+00:00",
+ "updatedAt": "2026-08-07T01:15:15.269048+00:00",
  "siteTotals": {
+  "models": 226815,
   "datasets": 38356,
   "skills": 76173,
   "studios": 13300,
@@ -8,12 +9,12 @@
  },
  "sections": {
   "datasets": {
-   "collected": 15718,
-   "termsCompleted": 2584
+   "collected": 14846,
+   "termsCompleted": 2578
   },
   "skills": {
    "collected": 0,
-   "termsCompleted": 1904
+   "termsCompleted": 0
   },
   "studios": {
    "collected": 0,
