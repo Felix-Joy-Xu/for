@@ -97,16 +97,17 @@ jobs:
           git stash pop || true
           git push origin main || echo "::warning::progress_models.json 推送失败，下次运行会重试"
 
-      - name: 自动续跑（未爬满则触发下一轮）
+      - name: 自动续跑（本轮有新增则触发下一轮）
         if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
           DONE=$(python -c "import json;print(json.load(open('progress_models.json')).get('models',0))" 2>/dev/null || echo 0)
-          TARGET=$(python -c "import json;print(json.load(open('progress_models.json')).get('siteTotal',226815))" 2>/dev/null || echo 226815)
-          echo "当前进度: $DONE / $TARGET"
-          if [ "$DONE" -lt "$TARGET" ]; then
+          DELTA=$(python -c "import json;print(json.load(open('progress_models.json')).get('deltaThisRun',0))" 2>/dev/null || echo 0)
+          echo "当前进度: $DONE / 226815, 本轮新增: $DELTA"
+          # 停止条件：本轮新增 < 50（爬取已收敛，不再空转）
+          if [ "$DELTA" -ge 50 ]; then
             # 防抖：排除当前 run 后，若仍有同 workflow 的 in_progress run 则不重复触发
             sleep 60
             ACTIVE=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
@@ -121,5 +122,5 @@ jobs:
                 -d '{"ref":"main"}' && echo "已自动触发下一轮爬取" || echo "::warning::自动续跑触发失败"
             fi
           else
-            echo "已爬满全部模型，停止自动续跑"
+            echo "本轮新增 <50，爬取已收敛，停止自动续跑"
           fi
