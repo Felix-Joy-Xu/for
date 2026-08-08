@@ -432,6 +432,22 @@ def main():
         json.dump(list(models.values()), f, ensure_ascii=False)
     print(f"完成。去重后模型 {len(models)} 个 → {OUTPUT_JSON}", flush=True)
 
+    # 把本轮新增模型数写入 progress 文件，供自动续跑判断收敛
+    try:
+        prog_path = BASE_DIR / "progress_models.json"
+        prog = {}
+        if prog_path.exists():
+            with open(prog_path, "r", encoding="utf-8") as f:
+                prog = json.load(f)
+        prog["models"] = len(models)
+        prog["deltaThisRun"] = models_written
+        prog["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with open(prog_path, "w", encoding="utf-8") as f:
+            json.dump(prog, f, ensure_ascii=False, indent=1)
+        print(f"progress_models.json 已更新: models={len(models)}, deltaThisRun={models_written}", flush=True)
+    except Exception as e:
+        print(f"progress 更新失败: {e}", flush=True)
+
 
 if __name__ == "__main__":
     main()
