@@ -1,5 +1,5 @@
 {
- "updatedAt": "2026-08-07T05:20:28.271957+00:00",
+ "updatedAt": "2026-08-08T00:24:19.847410+00:00",
  "siteTotals": {
   "models": 226815,
   "datasets": 38356,
@@ -21,7 +21,7 @@
    "termsCompleted": 0
   },
   "mcp": {
-   "collected": 290,
+   "collected": 0,
    "termsCompleted": 0
   }
  }
