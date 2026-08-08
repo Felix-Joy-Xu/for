@@ -53,6 +53,7 @@ MAX_DEPTH = 6
 MAX_TERMS = int(os.environ.get("MS_FULL_MAX_TERMS", "0") or 0)
 BUDGET_MIN = int(os.environ.get("MS_FULL_BUDGET_MIN", "270") or 0)
 WORKERS = int(os.environ.get("MS_FULL_WORKERS", "3") or 1)
+TRUNCATE_RETRY = int(os.environ.get("MS_FULL_TRUNCATE_RETRY", "3") or 1)  # 截断词最大重试轮数
 START_TS = time.time()
 
 # 全局写锁（多线程写 jsonl + 状态）
@@ -103,28 +104,32 @@ def total_of(term):
 
 
 def fetch_term(term):
-    """处理一个词：先计数；total≤3000 则翻页取完，返回 (term, items, total, ok, need_split)。
-    need_split=True 表示 total>3000，需要调用方细分（此时 items 为空）。"""
+    """处理一个词：先计数；total≤3000 则翻页取完，返回 (term, items, total, ok, need_split, complete)。
+    need_split=True 表示 total>3000，需要调用方细分（此时 items 为空）。
+    complete=False 表示未完整取完（配额/超时中断），调用方不应标记完成，下轮重试。"""
     # 1. 计数（ps1）
     d0, ok0 = get_page(term, 1, 1)
     if not ok0:
-        return term, [], None, False, False
+        return term, [], None, False, False, False
     total = d0.get("total_count") or 0
     if total == 0:
-        return term, [], 0, True, False
+        return term, [], 0, True, False, True
     if total > WINDOW:
-        return term, [], total, True, True  # 需要细分
+        return term, [], total, True, True, False
 
     # 2. 翻页取完
     items = []
+    complete = True
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     for p in range(1, pages + 1):
         if time_up():
+            complete = False  # 时间到，未取完，下轮重试
             break
         d, ok = get_page(term, p, PAGE_SIZE)
         if not ok:
-            return term, items, total, False, False
+            return term, items, total, False, False, False
         if d.get("_quota"):
+            complete = False  # 配额中断，未取完，下轮重试
             break
         batch = d.get("models") or []
         items.extend(batch)
@@ -132,22 +137,27 @@ def fetch_term(term):
             break
         time.sleep(DELAY)
 
-    return term, items, total, True, False
+    return term, items, total, True, False, complete
 
 
 def fetch_term_best_effort(term):
     """对超窗口且达最大深度的词，尽力翻页取到 3000 上限。
-    返回 (term, items, total, ok)。"""
+    返回 (term, items, total, ok, complete)。complete=False 表示截断（>3000），
+    调用方应记录到 pending 列表供下轮继续，不标记完成。"""
     items = []
     total = 0
+    complete = True
     # ps=50, 翻到窗口上限 60 页（3000 条）
     for p in range(1, (WINDOW // PAGE_SIZE) + 1):
         if time_up():
+            complete = False
             break
         d, ok = get_page(term, p, PAGE_SIZE)
         if not ok:
+            complete = False
             break
         if d.get("_quota"):
+            complete = False
             break
         batch = d.get("models") or []
         items.extend(batch)
@@ -155,8 +165,8 @@ def fetch_term_best_effort(term):
             break
         time.sleep(DELAY)
     if not items:
-        return term, [], 0, False
-    return term, items, len(items), True
+        return term, [], 0, False, False
+    return term, items, len(items), True, complete
 
 
 def get_active_part_path(base_path, max_size=PART_MAX_SIZE):
@@ -270,18 +280,20 @@ def main():
     consecutive_errors = 0
     terms_done_this_run = 0
     models_written = 0
+    truncate_retries = {}  # 截断词 -> 已重试次数
 
     while queue:
         if time_up():
             print(f"时间预算 {BUDGET_MIN} 分钟用尽，主动收尾保存断点。", flush=True)
             break
 
-        # 取一批词并行处理
+        # 取一批词并行处理（加锁防竞态）
         batch_terms = []
-        while queue and len(batch_terms) < WORKERS * 2:
-            t = queue.pop(0)
-            if t not in done_terms:
-                batch_terms.append(t)
+        with write_lock:
+            while queue and len(batch_terms) < WORKERS * 2:
+                t = queue.pop(0)
+                if t not in done_terms:
+                    batch_terms.append(t)
 
         if not batch_terms:
             break
@@ -296,11 +308,12 @@ def main():
                     break
                 t = futures[fut]
                 try:
-                    term, items, total, ok, need_split = fut.result()
+                    term, items, total, ok, need_split, complete = fut.result()
                 except Exception as e:
                     print(f"[{t}] 异常: {str(e)[:80]}", flush=True)
                     ok = False
                     need_split = False
+                    complete = False
                     items = []
 
                 if need_split:
@@ -308,16 +321,56 @@ def main():
                     if len(term) >= MAX_DEPTH:
                         # 已达最大深度：尽力翻页取到 3000 上限
                         print(f"[{term}] 超窗口且达最大深度，尽力翻页取数", flush=True)
-                        be_term, be_items, be_total, be_ok = fetch_term_best_effort(term)
+                        be_term, be_items, be_total, be_ok, be_complete = fetch_term_best_effort(term)
                         n = write_batch(be_term, be_items)
                         models_written += n
-                    else:
-                        children = [term + c for c in ALPHABET if term + c not in done_terms]
                         with write_lock:
-                            queue = children + queue
-                            # 注意：父词不加入 done_terms！否则断点后父词被跳过，
-                            # 未处理完的子词会永久丢失。父词下轮重新探测（成本仅 1 次计数请求）。
-                        print(f"[{term}] total={total} > {WINDOW}，细分为 {len(children)} 个子词", flush=True)
+                            if be_complete and n > 0:
+                                done_terms.add(term)  # 完整取完（total 恰好 ≤3000）
+                                print(f"[{term}] 完整取完 {n} 条，标记完成", flush=True)
+                            else:
+                                # 截断：重试 TRUNCATE_RETRY 轮后放弃（深词重复率高，损失极小）
+                                truncate_retries[term] = truncate_retries.get(term, 0) + 1
+                                if truncate_retries[term] >= TRUNCATE_RETRY:
+                                    done_terms.add(term)
+                                    print(f"[{term}] 截断重试 {TRUNCATE_RETRY} 轮仍超限，接受 {n} 条并标记完成", flush=True)
+                                else:
+                                    queue.append(term)
+                                    print(f"[{term}] 截断（第{truncate_retries[term]}次，取 {n} 条），下轮继续", flush=True)
+                    else:
+                        # 收敛检测：探测子词 total，若不收敛（子词和 ≥ 父词的 80%）
+                        # 则停止细分，改 best_effort（避免 contains 匹配的无限细分）
+                        children = [term + c for c in ALPHABET if term + c not in done_terms]
+                        child_totals = 0
+                        probed = 0
+                        for ch in children[:12]:  # 采样探测前 12 个子词
+                            ct = total_of(ch)
+                            if ct is not None:
+                                child_totals += ct
+                                probed += 1
+                        converged = True
+                        if probed > 0 and total > 0:
+                            # 子词均值为 (child_totals/probed)，估算全部子词和
+                            est_total = child_totals / probed * len(children)
+                            converged = est_total < total * 0.8
+                        if not converged:
+                            # 不收敛：直接 best_effort 取满 3000，不再细分
+                            print(f"[{term}] 细分不收敛（子词和 {est_total:.0f} ≥ 父词 {total} 的80%），改尽力翻页", flush=True)
+                            be_term, be_items, be_total, be_ok, be_complete = fetch_term_best_effort(term)
+                            n = write_batch(be_term, be_items)
+                            models_written += n
+                            with write_lock:
+                                truncate_retries[term] = truncate_retries.get(term, 0) + 1
+                                if be_complete or truncate_retries[term] >= TRUNCATE_RETRY:
+                                    done_terms.add(term)
+                                    print(f"[{term}] 收敛失败后取 {n} 条，标记完成", flush=True)
+                                else:
+                                    queue.append(term)
+                        else:
+                            with write_lock:
+                                queue = children + queue
+                                # 父词不加入 done_terms！未处理完的子词会永久丢失。
+                            print(f"[{term}] total={total} > {WINDOW}，细分为 {len(children)} 个子词（收敛）", flush=True)
                     with write_lock:
                         terms_done_this_run += 1
                     time.sleep(DELAY)
@@ -338,7 +391,10 @@ def main():
                 n = write_batch(term, items)
                 models_written += n
                 with write_lock:
-                    done_terms.add(term)
+                    if complete:
+                        done_terms.add(term)  # 完整取完才标记完成
+                    else:
+                        queue.append(term)    # 未完整（配额/超时），下轮重试
                     terms_done_this_run += 1
 
                 if terms_done_this_run % 100 == 0:
