@@ -1,0 +1,87 @@
+name: 魔搭全量模型Owner切分
+
+# 用 owner 参数逐个爬取，每个 owner 独立 3000 窗口，覆盖接近全量模型。
+# 手动触发；每轮跑满 5 小时断点续爬。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 20 * * 2"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  crawl-owner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 恢复清单缓存
+        uses: actions/cache@v4
+        with:
+          path: modelscope_output
+          key: ms-models-owner-${{ github.run_id }}
+          restore-keys: |
+            ms-models-owner-
+            ms-models-
+          save-always: true
+
+      - name: 运行 Owner 切分爬虫（断点续爬）
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python watch_commit.py 0 1800 > /tmp/watch_commit.log 2>&1 &
+          WATCH_PID=$!
+          python -u crawl_ms_models_owner.py || true
+          sleep 5
+          kill $WATCH_PID 2>/dev/null || true
+          cat /tmp/watch_commit.log
+
+      - name: 上传数据产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-models-owner-run${{ github.run_number }}
+          path: |
+            modelscope_output/models_full*.jsonl
+            modelscope_output/models_full.json
+            modelscope_output/state_ms_models_owner.json
+          retention-days: 30
+
+      - name: 自动续跑（本轮有新增则触发下一轮）
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          DELTA=$(python -c "import json;print(json.load(open('progress_models.json')).get('deltaThisRun',0))" 2>/dev/null || echo 0)
+          echo "本轮新增: $DELTA"
+          if [ "$DELTA" -ge 50 ]; then
+            sleep 60
+            ACTIVE=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=10&status=in_progress" | python -c "import json,sys,os;d=json.load(sys.stdin);me=os.environ.get('CURRENT_RUN_ID','');print(sum(1 for r in d.get('workflow_runs',[]) if 'Owner' in r.get('name','') and str(r.get('id'))!=me))" 2>/dev/null || echo 0)
+            if [ "$ACTIVE" -gt 0 ]; then
+              echo "已有进行中的 run，跳过续跑"
+            else
+              curl -s -X POST \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ms_models_owner.yml/dispatches" \
+                -d '{"ref":"main"}' && echo "已自动触发下一轮" || echo "::warning::续跑触发失败"
+            fi
+          else
+            echo "本轮新增 <50，爬取已收敛，停止自动续跑"
+          fi
