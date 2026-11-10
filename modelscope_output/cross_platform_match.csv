@@ -1,21 +1,21 @@
 ﻿label,msap_id,hf_id,has_hf_counterpart,hf_gated,downloads_msap,downloads_hf,download_ratio_hf_over_msap,license_msap,license_hf,license_match,hf_readme_length,msap_readme_length,last_modified_hf,created_at_hf
-通义千问2.5,qwen/Qwen2.5-7B-Instruct,Qwen/Qwen2.5-7B-Instruct,True,False,7094037,6037480,0.8510640697250381,apache-2.0,apache-2.0,True,6237,0,2025-01-12T02:10:10.000Z,2024-09-16T11:55:40.000Z
-通义千问2.5-72B,qwen/Qwen2.5-72B-Instruct,Qwen/Qwen2.5-72B-Instruct,True,False,4618163,166748,0.036106997522608014,other,other,True,6256,0,2025-01-12T02:07:38.000Z,2024-09-16T11:56:31.000Z
-通义千问3旗舰MoE,Qwen/Qwen3-235B-A22B,Qwen/Qwen3-235B-A22B,True,False,890565,306653,0.34433533767888924,apache-2.0,apache-2.0,True,16782,0,2025-07-26T03:45:13.000Z,2025-04-27T03:53:46.000Z
-DeepSeek-V3,deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-V3,True,False,333905,1487156,4.453829682095207,,,,19612,0,2025-03-27T04:01:45.000Z,2024-12-25T12:52:23.000Z
-DeepSeek-R1,deepseek-ai/DeepSeek-R1,deepseek-ai/DeepSeek-R1,True,False,926343,1618845,1.747565426629229,mit,mit,True,15962,0,2025-03-27T04:01:59.000Z,2025-01-20T03:46:07.000Z
-智谱GLM-4,ZhipuAI/glm-4-9b,THUDM/glm-4-9b,True,False,22027,6450,0.2928224451809143,other,other,True,3173,0,2025-04-22T09:45:02.000Z,2024-06-04T08:59:09.000Z
-智谱GLM-4对话,ZhipuAI/glm-4-9b-chat,THUDM/glm-4-9b-chat,True,False,412303,29700,0.07203440188405129,other,other,True,7772,0,2025-03-13T15:48:14.000Z,2024-06-04T09:01:42.000Z
-百川2,baichuan-inc/Baichuan2-13B-Chat,baichuan-inc/Baichuan2-13B-Chat,True,False,263408,9139,0.03469522565753508,other,other,True,14454,0,2024-02-26T08:58:32.000Z,2023-08-29T02:30:01.000Z
-零一万物Yi,01ai/Yi-1.5-34B-Chat,01-ai/Yi-1.5-34B-Chat,True,False,20860,13979,0.6701342281879195,Apache License 2.0,apache-2.0,False,5593,0,2024-08-27T07:11:05.000Z,2024-05-10T06:47:21.000Z
-InternLM2.5,internlm/internlm2_5-7b-chat,internlm/internlm2_5-7b-chat,True,False,0,10198,,,other,False,16950,0,2025-03-13T07:04:49.000Z,2024-06-27T13:01:58.000Z
-Llama-3-8B,LLM-Research/Meta-Llama-3-8B-Instruct,meta-llama/Meta-Llama-3-8B-Instruct,True,True,408223,385543,0.9444421308941436,,llama3,False,0,0,2025-06-18T23:49:51.000Z,2024-04-17T09:35:12.000Z
-Mistral-7B,LLM-Research/Mistral-7B-Instruct-v0.2,mistralai/Mistral-7B-Instruct-v0.2,True,False,2331,1469560,630.4418704418705,apache-2.0,apache-2.0,True,5537,0,2025-07-24T16:57:21.000Z,2023-12-11T13:18:44.000Z
-Google Gemma-2,AI-ModelScope/gemma-2-2b-it,google/gemma-2-2b-it,True,True,0,121130,,,gemma,False,0,0,2024-08-27T19:41:44.000Z,2024-07-16T10:51:39.000Z
-微软Phi-3,mlx-community/Phi-3.5-mini-instruct-8bit,microsoft/Phi-3-mini-128k-instruct,True,False,891,239003,268.2413019079686,mit,mit,True,23954,0,2025-12-10T20:21:52.000Z,2024-04-22T16:26:23.000Z
-Qwen2-VL多模态,qwen/Qwen2-VL-7B-Instruct,Qwen/Qwen2-VL-7B-Instruct,True,False,999298,546277,0.5466607558506071,apache-2.0,apache-2.0,True,17729,0,2025-02-06T05:18:08.000Z,2024-08-28T09:03:13.000Z
-InternVL多模态,AI-ModelScope/InternVL-Chat-V1-5,OpenGVLab/InternVL-Chat-V1-5,True,False,44039,5224,0.11862213038443198,mit,mit,True,26005,0,2025-03-25T05:44:05.000Z,2024-04-18T08:07:48.000Z
+通义千问2.5,qwen/Qwen2.5-7B-Instruct,Qwen/Qwen2.5-7B-Instruct,True,False,7094037,6075622,0.8564406980115835,apache-2.0,apache-2.0,True,6237,0,2025-01-12T02:10:10.000Z,2024-09-16T11:55:40.000Z
+通义千问2.5-72B,qwen/Qwen2.5-72B-Instruct,Qwen/Qwen2.5-72B-Instruct,True,False,4618163,151833,0.03287735837821229,other,other,True,6256,0,2025-01-12T02:07:38.000Z,2024-09-16T11:56:31.000Z
+通义千问3旗舰MoE,Qwen/Qwen3-235B-A22B,Qwen/Qwen3-235B-A22B,True,False,890565,307946,0.3457872249639274,apache-2.0,apache-2.0,True,16782,0,2025-07-26T03:45:13.000Z,2025-04-27T03:53:46.000Z
+DeepSeek-V3,deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-V3,True,False,333905,1486147,4.450807864512361,,,,19612,0,2025-03-27T04:01:45.000Z,2024-12-25T12:52:23.000Z
+DeepSeek-R1,deepseek-ai/DeepSeek-R1,deepseek-ai/DeepSeek-R1,True,False,926343,1636628,1.7667624195357443,mit,mit,True,15962,0,2025-03-27T04:01:59.000Z,2025-01-20T03:46:07.000Z
+智谱GLM-4,ZhipuAI/glm-4-9b,THUDM/glm-4-9b,True,False,22027,6451,0.29286784400962457,other,other,True,3173,0,2025-04-22T09:45:02.000Z,2024-06-04T08:59:09.000Z
+智谱GLM-4对话,ZhipuAI/glm-4-9b-chat,THUDM/glm-4-9b-chat,True,False,412303,30611,0.07424394195530956,other,other,True,7772,0,2025-03-13T15:48:14.000Z,2024-06-04T09:01:42.000Z
+百川2,baichuan-inc/Baichuan2-13B-Chat,baichuan-inc/Baichuan2-13B-Chat,True,False,263408,9506,0.036088501488185626,other,other,True,14454,0,2024-02-26T08:58:32.000Z,2023-08-29T02:30:01.000Z
+零一万物Yi,01ai/Yi-1.5-34B-Chat,01-ai/Yi-1.5-34B-Chat,True,False,20860,14113,0.6765580057526366,Apache License 2.0,apache-2.0,False,5593,0,2024-08-27T07:11:05.000Z,2024-05-10T06:47:21.000Z
+InternLM2.5,internlm/internlm2_5-7b-chat,internlm/internlm2_5-7b-chat,True,False,0,10496,,,other,False,16950,0,2025-03-13T07:04:49.000Z,2024-06-27T13:01:58.000Z
+Llama-3-8B,LLM-Research/Meta-Llama-3-8B-Instruct,meta-llama/Meta-Llama-3-8B-Instruct,True,True,408223,392729,0.962045254676978,,llama3,False,0,0,2025-06-18T23:49:51.000Z,2024-04-17T09:35:12.000Z
+Mistral-7B,LLM-Research/Mistral-7B-Instruct-v0.2,mistralai/Mistral-7B-Instruct-v0.2,True,False,2331,1429915,613.4341484341485,apache-2.0,apache-2.0,True,5537,0,2025-07-24T16:57:21.000Z,2023-12-11T13:18:44.000Z
+Google Gemma-2,AI-ModelScope/gemma-2-2b-it,google/gemma-2-2b-it,True,True,0,123911,,,gemma,False,0,0,2024-08-27T19:41:44.000Z,2024-07-16T10:51:39.000Z
+微软Phi-3,mlx-community/Phi-3.5-mini-instruct-8bit,microsoft/Phi-3-mini-128k-instruct,True,False,891,239080,268.327721661055,mit,mit,True,23954,0,2025-12-10T20:21:52.000Z,2024-04-22T16:26:23.000Z
+Qwen2-VL多模态,qwen/Qwen2-VL-7B-Instruct,Qwen/Qwen2-VL-7B-Instruct,True,False,999298,536003,0.5363795384359821,apache-2.0,apache-2.0,True,17729,0,2025-02-06T05:18:08.000Z,2024-08-28T09:03:13.000Z
+InternVL多模态,AI-ModelScope/InternVL-Chat-V1-5,OpenGVLab/InternVL-Chat-V1-5,True,False,44039,5343,0.12132428075115238,mit,mit,True,26005,0,2025-03-25T05:44:05.000Z,2024-04-18T08:07:48.000Z
 达摩院中文分词(没有HF镜像),iic/nlp_structbert_word-segmentation_chinese-base,,False,,,,,,,,,,,
 达摩院GPT3(没有HF镜像),damo/nlp_gpt3_text-generation_1.3B,,False,,,,,,,,,,,
 小米MiMo-VL,XiaomiMiMo/XiaomiMiMo-VL-7B-RL-2508,XiaomiMiMo/XiaomiMiMo-VL-7B-RL-2508,True,True,0,0,,,,,0,0,,
-腾讯混元7B,AI-ModelScope/Hunyuan-7B-Instruct,tencent/Hunyuan-7B-Instruct,True,False,301,5152,17.11627906976744,,,,20872,0,2025-09-02T07:35:40.000Z,2025-07-30T03:40:59.000Z
+腾讯混元7B,AI-ModelScope/Hunyuan-7B-Instruct,tencent/Hunyuan-7B-Instruct,True,False,301,5084,16.890365448504983,,,,20872,0,2025-09-02T07:35:40.000Z,2025-07-30T03:40:59.000Z
